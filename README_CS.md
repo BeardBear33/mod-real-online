@@ -5,9 +5,9 @@
 ## Popis (CZ)  
 Tento modul umožňuje:  
 - Zobrazit skutečné hráče bez Randombotů a Altbotů  
-- Odměnu za denní login s bonusovým dnem
-- Odměnu za každých 10 levelů (10,20,30,40,50,60,70,80) pro prvních 10 postav na accountu
-- Odměnu každých X hodin/minut
+- Odměnu za denní login s bonusovým dnem (vázáno na account)
+- Odměnu za každých 10 levelů (10,20,30,40,50,60,70,80) pro prvních 10 postav na accountu (ignoruje pouze randomboty)
+- Odměnu každých X hodin/minut (ignoruje randomboty i altboty)
 - Reward a Claim systém přes příkaz.
 
 ### Požadavky  
@@ -34,4 +34,5 @@ Modul používá vlastní DB customs a tabulky pro zápis a čtení dat které d
 ➝ Vyzvedne dostupné odměny
 
 ## License
+
 This module is licensed under the [GNU General Public License v2.0 (GPL-2.0)](LICENSE).
