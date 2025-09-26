@@ -1,0 +1,80 @@
+# Jazyk hlášek pro real-online a navázané odměny (CZ/EN)
+# cs/en
+RealOnline.Locale = cs
+
+# Zobrazit level za jménem "Jmeno [lvl 80]"
+RealOnline.ShowLevel = 1
+
+# Skrýt GM postavy (1 = skrýt, 0 = zobrazit)
+RealOnline.HideGMs = 0
+
+# Minimální level pro zobrazení (0 = neomezovat)
+RealOnline.MinLevel = 0
+
+# Počet položek na stránku (.online, číslo = stránka)
+RealOnline.PageSize = 10
+
+# Rozsahy účtů, které se mají ignorovat ve výpisu (pro režim 'accountid')
+# Formát: "min-max;min-max;..." (např. rozsahy účtů PlayerBots)
+RealOnline.IgnoreAccountIdRanges = ""
+
+# REŽIM ZJIŠŤOVÁNÍ ONLINE HRÁČŮ
+#  - accountid (výchozí) -> původní chování, filtruje podle AccountID ranges
+#  - session             -> pouze hráči s WorldSession (reální hráči)
+RealOnline.Mode = session
+
+# ==== Reward za real-online ====
+RealOnline.Reward.Enable = 1
+RealOnline.Reward.ItemId = 37711
+# "minute" nebo "hour"
+RealOnline.Reward.IntervalUnit = hour
+# každých N jednotek
+RealOnline.Reward.IntervalCount = 1
+# minimální level hráče pro nárok (0 = neomezovat)
+RealOnline.Reward.MinLevel = 0
+
+# ==== Tokeny za milníky levelů ====
+Token.Level.Enable = 1
+Token.Level.Milestones = 10,20,30,40,50,60,70,80
+# pro každý milník nastav item a počet
+Token.Level.10.ItemId  = 37711
+Token.Level.10.Count   = 1
+Token.Level.20.ItemId  = 37711
+Token.Level.20.Count   = 2
+Token.Level.30.ItemId  = 37711
+Token.Level.30.Count   = 3
+Token.Level.40.ItemId  = 37711
+Token.Level.40.Count   = 4
+Token.Level.50.ItemId  = 37711
+Token.Level.50.Count   = 5
+Token.Level.60.ItemId  = 37711
+Token.Level.60.Count   = 6
+Token.Level.70.ItemId  = 37711
+Token.Level.70.Count   = 7
+Token.Level.80.ItemId  = 37711
+Token.Level.80.Count   = 8
+
+# inventory | entitlement
+Token.Level.Delivery = entitlement
+Token.Level.Announce = 1
+
+# ==== Login Streak ====
+Token.Streak.Enable = 1
+Token.Streak.Base.ItemId = 37711
+Token.Streak.Base.Count  = 1
+Token.Streak.CycleLength = 28
+Token.Streak.SpecialDays = 7,14,21,28
+Token.Streak.Special.7.ItemId  = 37711
+Token.Streak.Special.7.Count   = 7
+Token.Streak.Special.14.ItemId = 37711
+Token.Streak.Special.14.Count  = 14
+Token.Streak.Special.21.ItemId = 37711
+Token.Streak.Special.21.Count  = 21
+Token.Streak.Special.28.ItemId = 37711
+Token.Streak.Special.28.Count  = 28
+Token.Streak.DayBoundaryHour = 4
+Token.Streak.ResetOnMiss = 1
+
+# inventory | entitlement
+Token.Streak.Delivery = entitlement
+Token.Streak.Announce = 1

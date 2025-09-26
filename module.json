@@ -1,0 +1,22 @@
+{
+  "name": "mod-real-online",
+  "version": "1.0.0",
+  "author": "BeardBear",
+  "description": "A module that allows displaying real players without randombots and playerbots.",
+  "patches": [],
+  "sql": {
+    "world": [
+      "sql/world/base/token_apply.sql",
+	  "sql/world/backup/token_revert.sql"
+    ],
+	"customs": [
+      "sql/customs/base/levelandlogin.sql",
+	  "sql/customs/base/rewards.sql"
+    ]
+  },
+  "commands": [
+    ".online",
+    ".reward",
+    ".reward claim"
+  ]
+}
