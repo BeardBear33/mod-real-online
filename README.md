@@ -12,10 +12,12 @@
 
 🔧 Tento modul je primárně vyvíjen pro jádro a modul playerbots:  
 [azerothcore-wotlk (Playerbot branch)](https://github.com/liyunfan1223/azerothcore-wotlk/tree/Playerbot)
+
 [mod-playerbots (master branch) ] (https://github.com/liyunfan1223/mod-playerbots)
 
 🔧 This module is primarily developed for the core and module playerbots:  
 [azerothcore-wotlk (Playerbot branch)](https://github.com/liyunfan1223/azerothcore-wotlk/tree/Playerbot)
+
 [mod-playerbots (master branch) ] (https://github.com/liyunfan1223/mod-playerbots)
 
 ----------------------------------------------------------------------------------------------------------------
@@ -23,3 +25,4 @@
 🌍 Vyber jazyk / Choose language:
 - [Čeština](./README_CS.md)
 - [English](./README_EN.md)
+
