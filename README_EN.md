@@ -38,5 +38,17 @@ The module uses its own customs database and tables for writing and reading data
 .reward claim
 ➝ Claims available rewards
 
+.token
+➝ Show available tokens
+
+.token deposit 
+➝ Deposit available tokens
+➝ Usage: .token deposit 6
+
+.token withdraw
+➝ Withdraw available tokens
+➝ Usage: .token withdraw 6
+
 ## License
+
 This module is licensed under the [GNU General Public License v2.0 (GPL-2.0)](LICENSE).
