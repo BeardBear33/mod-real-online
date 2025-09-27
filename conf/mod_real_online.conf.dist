@@ -32,24 +32,16 @@ RealOnline.MinLevel = 0
 # Items per page for .online (use .online <page_number> to navigate)
 RealOnline.PageSize = 10
 
-# Rozsahy účtů, které se mají ignorovat ve výpisu (pro režim 'accountid')
-# Formát: "min-max;min-max;..." (např. rozsahy účtů PlayerBots)
-# Account ID ranges to exclude from the listing (for 'accountid' mode)
-# Format: "min-max;min-max;..." (e.g., ranges used by PlayerBots)
-RealOnline.IgnoreAccountIdRanges = ""
-
-# REŽIM ZJIŠŤOVÁNÍ ONLINE HRÁČŮ
-# ONLINE PLAYER DETECTION MODE
-#  - accountid 			 -> původní chování, filtruje podle AccountID ranges
-#  - session             -> pouze hráči s WorldSession (reální hráči)
-#  - accountid 			 -> original behavior; filters by AccountID ranges
-#  - session             -> only players with a WorldSession (real players)
-RealOnline.Mode = session
-
 #=================#
 # Nastavení odměn #
 # Reward settings #
 #=================#
+
+# Rozsahy účtů, které nemají dostávat odměny
+# Formát: "min-max;min-max;..." (např. rozsahy účtů PlayerBots)
+# Account ranges that should not receive rewards
+# Format: "min-max;min-max;..." (e.g., ranges used by PlayerBots)
+RealOnline.IgnoreAccountIdRanges = "1-200"
 
 # ==== Reward za strávený čas ve hře ====
 # Odměny pro reálně připojené hráče (ne boty).
