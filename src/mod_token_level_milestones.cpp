@@ -48,6 +48,39 @@ static std::vector<uint32> ParseCSVu32(std::string const& s)
     return out;
 }
 
+// ==== NEW: range parser pro blokaci účtů (A-B;C-D;...) ====
+struct Range { uint32 min = 0, max = 0; };
+
+static std::vector<Range> ParseRanges(std::string const& txt)
+{
+    std::vector<Range> out;
+    std::stringstream ss(txt);
+    std::string seg;
+    while (std::getline(ss, seg, ';'))
+    {
+        seg = Trim(seg);
+        if (seg.empty()) continue;
+        auto dash = seg.find('-');
+        if (dash == std::string::npos) continue;
+        std::string a = Trim(seg.substr(0, dash));
+        std::string b = Trim(seg.substr(dash + 1));
+        if (a.empty() || b.empty()) continue;
+        uint32 mn = 0, mx = 0;
+        try { mn = static_cast<uint32>(std::stoul(a)); mx = static_cast<uint32>(std::stoul(b)); } catch (...) { continue; }
+        if (mn > mx) std::swap(mn, mx);
+        out.push_back({ mn, mx });
+    }
+    return out;
+}
+
+static bool InRanges(uint32 id, std::vector<Range> const& rs)
+{
+    for (auto const& r : rs)
+        if (id >= r.min && id <= r.max)
+            return true;
+    return false;
+}
+
 static bool DeliverRewardToPlayerOrEntitlement(Player* plr, uint32 accountId, uint32 itemId, uint32 count, std::string const& deliveryMode)
 {
     std::string mode = deliveryMode;
@@ -123,6 +156,13 @@ static void HandleLevelMilestone(Player* player)
     uint32 acc  = player->GetSession()->GetAccountId();
     uint32 guid = player->GetGUID().GetCounter();
 
+    // NEW: blokace účtů podle RealOnline.IgnoreAccountIdRanges
+    {
+        std::vector<Range> blocked = ParseRanges(sConfigMgr->GetOption<std::string>("RealOnline.IgnoreAccountIdRanges", ""));
+        if (!blocked.empty() && InRanges(acc, blocked))
+            return; // účet je blokován pro odměny
+    }
+
     // a) už vyplaceno téhle postavě pro tenhle milník?
     std::string q1 =
         "SELECT 1 FROM customs.level_milestones "
@@ -172,79 +212,87 @@ public:
     TokenLevelMilestones() : PlayerScript("TokenLevelMilestones") { }
 
     void OnPlayerLevelChanged(Player* player, uint8 oldLevel) override
-{
-    LvlCfg cfg = ReadLvlCfg();
-    if (!cfg.enable || !player || !player->GetSession())
-        return;
-
-    uint32 newLevel = player->GetLevel();
-    if (newLevel <= oldLevel)
-        return; // ignoruj de-level nebo beze změny
-
-    uint32 acc = player->GetSession()->GetAccountId();
-    uint32 guidLow = player->GetGUID().GetCounter();
-
-    // od prvního celého násobku 10 nad oldLevel až po newLevel (max 80)
-    uint32 start = oldLevel + 1;
-    uint32 end   = newLevel;
-    uint32 firstMilestone = ((start + 9) / 10) * 10;
-
-    // pro jistotu použijeme i seznam z configu (musí obsahovat 10,20,..)
-    auto ms = cfg.milestones;
-
-    for (uint32 m = firstMilestone; m <= end && m <= 80; m += 10)
     {
-        if (!std::binary_search(ms.begin(), ms.end(), m))
-            continue;
+        LvlCfg cfg = ReadLvlCfg();
+        if (!cfg.enable || !player || !player->GetSession())
+            return;
 
-        uint32 itemId = 0, count = 0;
-        if (!GetMilestoneReward(m, itemId, count))
-            continue;
+        uint32 newLevel = player->GetLevel();
+        if (newLevel <= oldLevel)
+            return; // ignoruj de-level nebo beze změny
 
-        // cap: max 10 odměn na účet a milník (historicky)
-        uint32 totalForAcc = 0;
+        uint32 acc = player->GetSession()->GetAccountId();
+        uint32 guidLow = player->GetGUID().GetCounter();
+
+        // NEW: blokace účtů podle RealOnline.IgnoreAccountIdRanges (parsuj jednou)
+        std::vector<Range> blocked = ParseRanges(sConfigMgr->GetOption<std::string>("RealOnline.IgnoreAccountIdRanges", ""));
+        bool isBlocked = (!blocked.empty() && InRanges(acc, blocked));
+
+        // od prvního celého násobku 10 nad oldLevel až po newLevel (max 80)
+        uint32 start = oldLevel + 1;
+        uint32 end   = newLevel;
+        uint32 firstMilestone = ((start + 9) / 10) * 10;
+
+        // pro jistotu použijeme i seznam z configu (musí obsahovat 10,20,..)
+        auto ms = cfg.milestones;
+
+        for (uint32 m = firstMilestone; m <= end && m <= 80; m += 10)
         {
-            std::string q = "SELECT COUNT(*) FROM customs.level_milestones WHERE account="
-                          + std::to_string(acc) + " AND milestone=" + std::to_string(m);
-            if (QueryResult r = CharacterDatabase.Query(q.c_str()))
-                totalForAcc = r->Fetch()[0].Get<uint32>();
-        }
-        if (totalForAcc >= 10)
-            continue;
+            if (!std::binary_search(ms.begin(), ms.end(), m))
+                continue;
 
-        // pokus o záznam pro (account,guid,milestone)
-        std::string ins = "INSERT IGNORE INTO customs.level_milestones (account,guid,milestone) VALUES ("
-                        + std::to_string(acc) + "," + std::to_string(guidLow) + "," + std::to_string(m) + ")";
-        CharacterDatabase.DirectExecute(ins.c_str());
+            uint32 itemId = 0, count = 0;
+            if (!GetMilestoneReward(m, itemId, count))
+                continue;
 
-        // ověř, zda se vložilo (tj. ještě nebylo vyplaceno této postavě)
-        uint32 nowCount = 0;
-        {
-            std::string q2 = "SELECT COUNT(*) FROM customs.level_milestones WHERE account="
-                           + std::to_string(acc) + " AND guid=" + std::to_string(guidLow)
-                           + " AND milestone=" + std::to_string(m);
-            if (QueryResult r2 = CharacterDatabase.Query(q2.c_str()))
-                nowCount = r2->Fetch()[0].Get<uint32>();
-        }
-        if (nowCount == 0)
-            continue;
+            // účet je blokován pro odměny -> přeskoč vyplácení / zápisy
+            if (isBlocked)
+                continue;
 
-        // vyplať
-        DeliverRewardToPlayerOrEntitlement(player, acc, itemId, count, cfg.delivery);
+            // cap: max 10 odměn na účet a milník (historicky)
+            uint32 totalForAcc = 0;
+            {
+                std::string q = "SELECT COUNT(*) FROM customs.level_milestones WHERE account="
+                              + std::to_string(acc) + " AND milestone=" + std::to_string(m);
+                if (QueryResult r = CharacterDatabase.Query(q.c_str()))
+                    totalForAcc = r->Fetch()[0].Get<uint32>();
+            }
+            if (totalForAcc >= 10)
+                continue;
 
-        // oznámení
-        if (cfg.announce)
-        {
-            std::ostringstream ss;
-            if (LangOpt()==Lang::EN)
-                ss << "Grats! You reached level " << m << " and receive " << count << "x Mystery Token.";
-            else
-                ss << "Gratuluji! Dosáhl jsi " << m << ". levelu a získáváš " << count << "x Mystery Token.";
-            ChatHandler(player->GetSession()).SendSysMessage(ss.str().c_str());
-            player->GetSession()->SendAreaTriggerMessage(ss.str().c_str());
+            // pokus o záznam pro (account,guid,milestone)
+            std::string ins = "INSERT IGNORE INTO customs.level_milestones (account,guid,milestone) VALUES ("
+                            + std::to_string(acc) + "," + std::to_string(guidLow) + "," + std::to_string(m) + ")";
+            CharacterDatabase.DirectExecute(ins.c_str());
+
+            // ověř, zda se vložilo (tj. ještě nebylo vyplaceno této postavě)
+            uint32 nowCount = 0;
+            {
+                std::string q2 = "SELECT COUNT(*) FROM customs.level_milestones WHERE account="
+                               + std::to_string(acc) + " AND guid=" + std::to_string(guidLow)
+                               + " AND milestone=" + std::to_string(m);
+                if (QueryResult r2 = CharacterDatabase.Query(q2.c_str()))
+                    nowCount = r2->Fetch()[0].Get<uint32>();
+            }
+            if (nowCount == 0)
+                continue;
+
+            // vyplať
+            DeliverRewardToPlayerOrEntitlement(player, acc, itemId, count, cfg.delivery);
+
+            // oznámení
+            if (cfg.announce)
+            {
+                std::ostringstream ss;
+                if (LangOpt()==Lang::EN)
+                    ss << "Grats! You reached level " << m << " and receive " << count << "x Mystery Token.";
+                else
+                    ss << "Gratuluji! Dosáhl jsi " << m << ". levelu a získáváš " << count << "x Mystery Token.";
+                ChatHandler(player->GetSession()).SendSysMessage(ss.str().c_str());
+                player->GetSession()->SendAreaTriggerMessage(ss.str().c_str());
+            }
         }
     }
-}
 };
 
 void Addmod_token_level_milestonesScripts()
