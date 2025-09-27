@@ -415,10 +415,10 @@ public:
         // Připis 1 entitlement/account (UPSERT) do customs.rewards
         for (uint32 acc : accounts)
         {
-            std::string q =
-                "INSERT INTO customs.rewards (account,item,entitled,claimed) "
-                "VALUES (" + std::to_string(acc) + "," + std::to_string(cfg.itemId) + ",1,0) "
-                "ON DUPLICATE KEY UPDATE entitled = entitled + 1, updated_at = NOW()";
+			std::string q =
+				"INSERT INTO customs.rewards (`account`,`item`,`entitled`,`claimed`,`stored`) "
+				"VALUES (" + std::to_string(acc) + "," + std::to_string(cfg.itemId) + ",1,0,0) "
+				"ON DUPLICATE KEY UPDATE `entitled` = `entitled` + 1, updated_at = NOW()";
             CharacterDatabase.DirectExecute(q.c_str());
         }
     }
@@ -533,13 +533,14 @@ public:
                 plr->SendNewItem(it, countToGive, true, false);
 
                 std::string up =
-                    "INSERT INTO customs.rewards (account,item,entitled,claimed) "
-                    "VALUES (" + std::to_string(acc) + "," + std::to_string(cfg.itemId) + ",0," + std::to_string(countToGive) + ") "
-                    "ON DUPLICATE KEY UPDATE claimed = claimed + VALUES(claimed), updated_at = NOW()";
+					"INSERT INTO customs.rewards (`account`,`item`,`entitled`,`claimed`,`stored`) "
+					"VALUES (" + std::to_string(acc) + "," + std::to_string(cfg.itemId) + ",0," + std::to_string(countToGive) + ",0) "
+					"ON DUPLICATE KEY UPDATE `claimed` = `claimed` + VALUES(`claimed`), updated_at = NOW()";
                 CharacterDatabase.DirectExecute(up.c_str());
 
                 std::ostringstream ok;
-                ok << (LangOpt()==Lang::EN ? "Claimed: Mystery Token " : "Vybráno: Mystery Token ") << countToGive << (LangOpt()==Lang::EN ? " pcs" : "ks");
+                ok << (LangOpt()==Lang::EN ? "Claimed: Mystery Token " : "Vybráno: Mystery Token ")
+                   << countToGive << (LangOpt()==Lang::EN ? " pcs" : "ks");
                 handler->SendSysMessage(ok.str().c_str());
             }
             else
@@ -552,6 +553,224 @@ public:
 
         handler->SendSysMessage(T("Neznámý parametr. Použij \".reward\" nebo \".reward claim\".",
                                   "Unknown parameter. Use \".reward\" or \".reward claim\"."));
+        return true;
+    }
+};
+
+// =============================
+// ==== TOKEN BANK – .token příkazy ====
+// =============================
+class TokenBankCommand : public CommandScript
+{
+public:
+    TokenBankCommand() : CommandScript("TokenBankCommand") {}
+
+#ifdef AC_HAS_NEW_CHAT_API
+    ChatCommandTable GetCommands() const override
+    {
+        static ChatCommandTable table =
+        {
+            { "token", HandleToken, SEC_PLAYER, Console::No }
+        };
+        return table;
+    }
+#else
+    std::vector<ChatCommand> GetCommands() const override
+    {
+        static std::vector<ChatCommand> cmds;
+        cmds.push_back({ "token", SEC_PLAYER, false, &HandleToken, "" });
+        return cmds;
+    }
+#endif
+
+    static uint32 ReadStored(uint32 acc, uint32 itemId)
+	{
+		std::string q = "SELECT `stored` FROM customs.rewards WHERE account="
+					+ std::to_string(acc) + " AND item=" + std::to_string(itemId) + " LIMIT 1";
+		if (QueryResult r = CharacterDatabase.Query(q.c_str()))
+			return r->Fetch()[0].Get<uint32>();
+		return 0;
+	}
+
+    static void UpsertAddStored(uint32 acc, uint32 itemId, uint32 add)
+	{
+		std::string up =
+			"INSERT INTO customs.rewards (`account`,`item`,`entitled`,`claimed`,`stored`) VALUES ("
+			+ std::to_string(acc) + "," + std::to_string(itemId) + ",0,0," + std::to_string(add) + ") "
+			"ON DUPLICATE KEY UPDATE `stored` = `stored` + VALUES(`stored`), updated_at = NOW()";
+		CharacterDatabase.DirectExecute(up.c_str());
+	}
+
+
+    static bool HandleToken(ChatHandler* handler, char const* args)
+    {
+        Player* plr = handler->GetSession() ? handler->GetSession()->GetPlayer() : nullptr;
+        if (!plr)
+            return true;
+
+        RewardCfg cfg = GetRewardCfg();
+        if (!cfg.enable || cfg.itemId == 0)
+        {
+            handler->SendSysMessage(T("Reward system je vypnutý.", "Reward system is disabled."));
+            return true;
+        }
+
+        uint32 acc = handler->GetSession()->GetAccountId();
+        std::string sub = args ? Trim(args) : "";
+        std::transform(sub.begin(), sub.end(), sub.begin(), ::tolower);
+
+        auto showHelp = [&](){
+			uint32 stored = ReadStored(acc, cfg.itemId);
+		
+			if (LangOpt()==Lang::EN)
+			{
+				handler->SendSysMessage("Use:");
+				handler->SendSysMessage(".token deposit <count> – deposit tokens from your bags");
+				handler->SendSysMessage(".token withdraw <count> – withdraw stored tokens to your bags");
+				handler->SendSysMessage(std::string(70, '#').c_str());
+		
+				std::ostringstream ss;
+				ss << "Stored tokens: " << stored;
+				handler->SendSysMessage(ss.str().c_str());
+			}
+			else
+			{
+				handler->SendSysMessage("Použití:");
+				handler->SendSysMessage(".token deposit <pocet> – vloží tokeny z tašek do úschovy");
+				handler->SendSysMessage(".token withdraw <pocet> – vybere tokeny z úschovy do tašek");
+				handler->SendSysMessage(std::string(70, '#').c_str());
+		
+				std::ostringstream ss;
+				ss << "Uskladněné tokeny: " << stored;
+				handler->SendSysMessage(ss.str().c_str());
+			}
+		};
+
+
+        if (sub.empty())
+        {
+            showHelp();
+            return true;
+        }
+
+        // rozdělení subpříkazu + číslo
+        std::string cmd, num;
+        {
+            std::stringstream ss(sub);
+            ss >> cmd;
+            ss >> num;
+        }
+
+        // validace čísla
+        auto parseCount = [&](std::string const& s, uint32& out)->bool{
+            if (s.empty() || !std::all_of(s.begin(), s.end(), ::isdigit))
+                return false;
+            uint64 v = 0;
+            try { v = std::stoull(s); } catch (...) { return false; }
+            if (v == 0 || v > UINT32_MAX) return false;
+            out = static_cast<uint32>(v);
+            return true;
+        };
+
+        if (cmd == "deposit")
+        {
+            uint32 amount = 0;
+            if (!parseCount(num, amount))
+            {
+                handler->SendSysMessage(T("Zadej kladný počet: .token deposit <pocet>", "Enter a positive number: .token deposit <count>"));
+                return true;
+            }
+
+            uint32 have = plr->GetItemCount(cfg.itemId, true);
+            if (have < amount)
+            {
+                std::ostringstream ss;
+                if (LangOpt()==Lang::EN)
+                    ss << "Not enough tokens in your bags. You have " << have << ".";
+                else
+                    ss << "Nemáš dost tokenů v taškách. Máš " << have << ".";
+                handler->SendSysMessage(ss.str().c_str());
+                return true;
+            }
+
+            // odeber z inventáře
+            plr->DestroyItemCount(cfg.itemId, amount, true, false);
+
+            // navýš stored
+            UpsertAddStored(acc, cfg.itemId, amount);
+
+            std::ostringstream ok;
+            if (LangOpt()==Lang::EN)
+                ok << "Deposited " << amount << " token(s) to storage.";
+            else
+                ok << "Uloženo " << amount << " tokenů do úschovy.";
+            handler->SendSysMessage(ok.str().c_str());
+            return true;
+        }
+        else if (cmd == "withdraw")
+        {
+            uint32 amount = 0;
+            if (!parseCount(num, amount))
+            {
+                handler->SendSysMessage(T("Zadej kladný počet: .token withdraw <pocet>", "Enter a positive number: .token withdraw <count>"));
+                return true;
+            }
+
+            uint32 stored = ReadStored(acc, cfg.itemId);
+            if (stored < amount)
+            {
+                std::ostringstream ss;
+                if (LangOpt()==Lang::EN)
+                    ss << "Not enough stored tokens. You have " << stored << ".";
+                else
+                    ss << "Nemáš dost uskladněných tokenů. Máš " << stored << ".";
+                handler->SendSysMessage(ss.str().c_str());
+                return true;
+            }
+
+            // zkusit místo v taškách
+            ItemPosCountVec dest;
+            InventoryResult canStore = plr->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, cfg.itemId, amount);
+            if (canStore != EQUIP_ERR_OK)
+            {
+                handler->SendSysMessage(T(
+                    "Nemáš dost místa v taškách. Uvolni místo a zkus znovu.",
+                    "Not enough bag space. Free up space and try again."
+                ));
+                return true;
+            }
+
+            // dej itemy do tašek
+            if (Item* it = plr->StoreNewItem(dest, cfg.itemId, true, Item::GenerateItemRandomPropertyId(cfg.itemId)))
+            {
+                plr->SendNewItem(it, amount, true, false);
+
+                // odečti stored
+                std::string up = "UPDATE customs.rewards SET `stored` = `stored` - " + std::to_string(amount)
+							   + ", updated_at = NOW() WHERE account=" + std::to_string(acc)
+							   + " AND item=" + std::to_string(cfg.itemId) + " AND `stored` >= " + std::to_string(amount);
+					CharacterDatabase.DirectExecute(up.c_str());
+
+                std::ostringstream ok;
+                if (LangOpt()==Lang::EN)
+                    ok << "Withdrew " << amount << " token(s) from storage.";
+                else
+                    ok << "Vybráno " << amount << " tokenů z úschovy.";
+                handler->SendSysMessage(ok.str().c_str());
+            }
+            else
+            {
+                handler->SendSysMessage(T("Chyba při ukládání itemu do inventáře.", "Error storing item in inventory."));
+            }
+
+            return true;
+        }
+
+        // neznámý subpříkaz
+        if (LangOpt()==Lang::EN)
+            handler->SendSysMessage("Unknown parameter. Use \".token\", \".token deposit <count>\", or \".token withdraw <count>\".");
+        else
+            handler->SendSysMessage("Neznámý parametr. Použij \".token\", \".token deposit <pocet>\", nebo \".token withdraw <pocet>\".");
         return true;
     }
 };
@@ -569,6 +788,9 @@ void Addmod_real_onlineScripts()
     // NAVÁZANÉ NOVINKY
     new RealOnlineRewardTicker();
     new RewardCommand();
+
+    // .token banka
+    new TokenBankCommand();
 
     // přidej nové skripty
     Addmod_token_level_milestonesScripts();
