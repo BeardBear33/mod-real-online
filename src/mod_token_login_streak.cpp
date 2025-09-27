@@ -48,6 +48,40 @@ static std::vector<uint32> ParseCSVu32b(std::string const& s)
     return out;
 }
 
+// ==== blocklist rozsahů účtů (A-B;C-D;...) ====
+struct Range { uint32 min=0, max=0; };
+
+static std::vector<Range> ParseRanges(std::string const& txt)
+{
+    std::vector<Range> out;
+    std::stringstream ss(txt);
+    std::string seg;
+    while (std::getline(ss, seg, ';'))
+    {
+        seg = Trim2(seg);
+        if (seg.empty()) continue;
+        auto dash = seg.find('-');
+        if (dash == std::string::npos) continue;
+        std::string a = Trim2(seg.substr(0, dash));
+        std::string b = Trim2(seg.substr(dash + 1));
+        if (a.empty() || b.empty()) continue;
+        uint32 mn = 0, mx = 0;
+        try { mn = static_cast<uint32>(std::stoul(a)); mx = static_cast<uint32>(std::stoul(b)); }
+        catch (...) { continue; }
+        if (mn > mx) std::swap(mn, mx);
+        out.push_back({mn, mx});
+    }
+    return out;
+}
+
+static bool InRanges(uint32 id, std::vector<Range> const& rs)
+{
+    for (auto const& r : rs)
+        if (id >= r.min && id <= r.max)
+            return true;
+    return false;
+}
+
 static bool DeliverEntitlementOrInventory(Player* plr, uint32 accountId, uint32 itemId, uint32 count, std::string const& deliveryMode)
 {
     std::string mode = deliveryMode;
@@ -138,6 +172,14 @@ static void HandleLoginStreak(Player* player)
 
     uint32 acc = player->GetSession()->GetAccountId();
     uint32 today = TodaySerial(cfg.dayBoundaryHour);
+
+// Blokace účtů pro denní odměny podle RealOnline.IgnoreAccountIdRanges
+{
+    std::vector<Range> blocked = ParseRanges(sConfigMgr->GetOption<std::string>("RealOnline.IgnoreAccountIdRanges", ""));
+    if (!blocked.empty() && InRanges(acc, blocked))
+        return; // účet je blokovaný – žádný zápis ani vyplácení
+}
+
 
     uint32 lastSerial = 0, lastRewardSerial = 0, streakDay = 0;
 
