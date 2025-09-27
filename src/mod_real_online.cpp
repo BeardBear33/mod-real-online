@@ -248,66 +248,57 @@ public:
         uint32 pageSize  = sConfigMgr->GetOption<uint32>("RealOnline.PageSize", 10u);
         uint32 minLevel  = sConfigMgr->GetOption<uint32>("RealOnline.MinLevel", 0u);
 
-        std::string rangesS = sConfigMgr->GetOption<std::string>("RealOnline.IgnoreAccountIdRanges", "");
-        std::vector<Range> ignoreAccRanges = ParseRanges(rangesS);
-
         if (pageSize == 0) pageSize = 10;
 
-        // Build seznam dle módu
-        std::vector<Player*> list;
-        if (GetMode() == RealOnlineMode::Session)
-            BuildViaSessions(list, hideGMs, minLevel);
-        else
-            BuildViaAccountId(list, hideGMs, minLevel, ignoreAccRanges);
-
-        std::sort(list.begin(), list.end(),
-                  [](Player* a, Player* b){ return a->GetName() < b->GetName(); });
-
-        uint32 total = uint32(list.size());
-
-        uint32 beginIndex = 0, endIndex = 0;
-        std::string err;
-        if (!ParsePageOrRange(args, total, pageSize, beginIndex, endIndex, err))
-        {
-            handler->SendSysMessage(err.c_str());
-            return true;
-        }
-
-        uint32 pages = (total + pageSize - 1) / pageSize;
-        if (pages == 0) pages = 1;
-
-        bool lookedLikeRange = (args && std::string(args).find('-') != std::string::npos);
-        std::ostringstream head;
-        if (!lookedLikeRange)
-        {
-            uint32 page = (pageSize == 0) ? 1 : (beginIndex / pageSize + 1);
-            head << (LangOpt()==Lang::EN ? "Real players online: " : "Skuteční hráči online: ") << total
-                 << (LangOpt()==Lang::EN ? " (page " : " (stránka ") << page << "/" << pages
-                 << (LangOpt()==Lang::EN ? ", " : ", ")
-                 << pageSize << (LangOpt()==Lang::EN ? " per page, mode: " : " na stránku, mód: ")
-                 << (GetMode()==RealOnlineMode::Session ? "session" : "accountid") << ")";
-        }
-        else
-        {
-            head << (LangOpt()==Lang::EN ? "Real players online: " : "Skuteční hráči online: ") << total
-                 << (LangOpt()==Lang::EN ? " (range " : " (rozsah ") << (beginIndex + 1) << "-" << endIndex
-                 << (LangOpt()==Lang::EN ? ", mode: " : ", mód: ")
-                 << (GetMode()==RealOnlineMode::Session ? "session" : "accountid") << ")";
-        }
-        handler->SendSysMessage(head.str().c_str());
-
-        std::ostringstream out;
-        for (uint32 i = beginIndex; i < endIndex; ++i)
-        {
-            Player* p = list[i];
-            out << p->GetName();
-            if (showLevel)
-                out << (LangOpt()==Lang::EN ? " [lvl " : " [lvl ") << uint32(p->GetLevel()) << "]";
-            out << (LangOpt()==Lang::EN ? " - " : " - ") << FactionNameFor(p) << "\n";
-        }
-        handler->SendSysMessage(out.str().c_str());
-        return true;
-    }
+        // Build seznam (vždy přes session)
+		std::vector<Player*> list;
+		BuildViaSessions(list, hideGMs, minLevel);
+		
+		std::sort(list.begin(), list.end(),
+				[](Player* a, Player* b){ return a->GetName() < b->GetName(); });
+		
+		uint32 total = uint32(list.size());
+		
+		uint32 beginIndex = 0, endIndex = 0;
+		std::string err;
+		if (!ParsePageOrRange(args, total, pageSize, beginIndex, endIndex, err))
+		{
+			handler->SendSysMessage(err.c_str());
+			return true;
+		}
+		
+		uint32 pages = (total + pageSize - 1) / pageSize;
+		if (pages == 0) pages = 1;
+		
+		bool lookedLikeRange = (args && std::string(args).find('-') != std::string::npos);
+		std::ostringstream head;
+		if (!lookedLikeRange)
+		{
+			uint32 page = (pageSize == 0) ? 1 : (beginIndex / pageSize + 1);
+			head << (LangOpt()==Lang::EN ? "Real players online: " : "Skuteční hráči online: ") << total
+				<< (LangOpt()==Lang::EN ? " (page " : " (stránka ") << page << "/" << pages
+				<< (LangOpt()==Lang::EN ? ", " : ", ")
+				<< pageSize << (LangOpt()==Lang::EN ? " per page)" : " na stránku)");
+		}
+		else
+		{
+			head << (LangOpt()==Lang::EN ? "Real players online: " : "Skuteční hráči online: ") << total
+				<< (LangOpt()==Lang::EN ? " (range " : " (rozsah ") << (beginIndex + 1) << "-" << endIndex << ")";
+		}
+		handler->SendSysMessage(head.str().c_str());
+		
+		std::ostringstream out;
+		for (uint32 i = beginIndex; i < endIndex; ++i)
+		{
+			Player* p = list[i];
+			out << p->GetName();
+			if (showLevel)
+				out << " [lvl " << uint32(p->GetLevel()) << "]";
+			out << " - " << FactionNameFor(p) << "\n";
+		}
+		handler->SendSysMessage(out.str().c_str());
+		return true;
+	}
 };
 
 // =============================
@@ -352,38 +343,42 @@ static RewardCfg GetRewardCfg()
 static void CollectOnlineRealAccountIds(std::vector<uint32>& out, bool hideGMs, uint32 minLevel)
 {
     out.clear();
-    out.reserve(64);
 
+    // použijeme sessions (jen reální hráči)
     std::vector<Player*> list;
-    if (GetMode() == RealOnlineMode::Session)
-        BuildViaSessions(list, hideGMs, minLevel);
-    else
-    {
-        std::string rangesS = sConfigMgr->GetOption<std::string>("RealOnline.IgnoreAccountIdRanges", "");
-        std::vector<Range> ignoreAccRanges = ParseRanges(rangesS);
-        BuildViaAccountId(list, hideGMs, minLevel, ignoreAccRanges);
-    }
+    BuildViaSessions(list, hideGMs, minLevel);
 
-    out.reserve(list.size());
+    // blocklist účtů pro odměny z configu
+    std::vector<Range> blockedRanges = ParseRanges(
+        sConfigMgr->GetOption<std::string>("RealOnline.IgnoreAccountIdRanges", "")
+    );
+
     std::unordered_set<uint32> uniq;
-    uniq.reserve(list.size()*2 + 8);
+    uniq.reserve(list.size() * 2 + 8);
 
     for (Player* p : list)
     {
-        if (!p) continue;
-        if (minLevel > 0 && p->GetLevel() < minLevel)
+        if (!p || !p->IsInWorld())
             continue;
-        if (p->IsGameMaster() && sConfigMgr->GetOption<bool>("RealOnline.HideGMs", false))
+        if (hideGMs && p->IsGameMaster())
+            continue;
+        if (minLevel > 0 && p->GetLevel() < minLevel)
             continue;
 
         if (WorldSession* s = p->GetSession())
         {
             uint32 acc = s->GetAccountId();
+
+            // Blokace odměn pro zadané AccountID/rozsahy
+            if (!blockedRanges.empty() && InRanges(acc, blockedRanges))
+                continue;
+
             if (uniq.insert(acc).second)
                 out.push_back(acc);
         }
     }
 }
+
 
 class RealOnlineRewardTicker : public WorldScript
 {
