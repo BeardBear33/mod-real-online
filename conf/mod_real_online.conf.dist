@@ -1,42 +1,89 @@
-# Jazyk hlášek pro real-online a navázané odměny (CZ/EN)
-# cs/en
+#===================#
+# Nastavení jazyka  #
+# Language settings #
+#===================#
+
+# Jazyk zpráv modulu (cs = čeština, en = angličtina).
+# Ovlivní texty příkazů jako .online apod. 
+# Změna se projeví po restartu worldserveru (nebo po ".reload config", pokud je podporováno).
+# Language for module messages (cs = Czech, en = English).
+# Affects texts printed by commands like .online, etc.
+# Takes effect after a worldserver restart (or ".reload config" if supported).
 RealOnline.Locale = cs
 
+#=========================#
+# Nastavení online hráčů  #
+# Online players settings #											
+#=========================#
+				
 # Zobrazit level za jménem "Jmeno [lvl 80]"
+# Show the level after the name, e.g., "Name [lvl 80]"
 RealOnline.ShowLevel = 1
 
 # Skrýt GM postavy (1 = skrýt, 0 = zobrazit)
+# Hide GM characters (1 = hide, 0 = show)
 RealOnline.HideGMs = 0
 
 # Minimální level pro zobrazení (0 = neomezovat)
+# Minimum level to display (0 = no limit)
 RealOnline.MinLevel = 0
 
 # Počet položek na stránku (.online, číslo = stránka)
+# Items per page for .online (use .online <page_number> to navigate)
 RealOnline.PageSize = 10
 
 # Rozsahy účtů, které se mají ignorovat ve výpisu (pro režim 'accountid')
 # Formát: "min-max;min-max;..." (např. rozsahy účtů PlayerBots)
+# Account ID ranges to exclude from the listing (for 'accountid' mode)
+# Format: "min-max;min-max;..." (e.g., ranges used by PlayerBots)
 RealOnline.IgnoreAccountIdRanges = ""
 
 # REŽIM ZJIŠŤOVÁNÍ ONLINE HRÁČŮ
-#  - accountid (výchozí) -> původní chování, filtruje podle AccountID ranges
+# ONLINE PLAYER DETECTION MODE
+#  - accountid 			 -> původní chování, filtruje podle AccountID ranges
 #  - session             -> pouze hráči s WorldSession (reální hráči)
+#  - accountid 			 -> original behavior; filters by AccountID ranges
+#  - session             -> only players with a WorldSession (real players)
 RealOnline.Mode = session
 
-# ==== Reward za real-online ====
+#=================#
+# Nastavení odměn #
+# Reward settings #
+#=================#
+
+# ==== Reward za strávený čas ve hře ====
+# Odměny pro reálně připojené hráče (ne boty).
+# ==== Playtime rewards ====
+# Rewards for real (non-bot) online players.
 RealOnline.Reward.Enable = 1
+
+# Item ID, který se uděluje jako odměna.
+# Item ID granted as the reward.
 RealOnline.Reward.ItemId = 37711
-# "minute" nebo "hour"
+
+# "minute" nebo "hour" – jednotka intervalu odměn.
+# "minute" or "hour" – reward interval unit.
 RealOnline.Reward.IntervalUnit = hour
-# každých N jednotek
+
+# Každých N jednotek (viz IntervalUnit).
+# Every N units (see IntervalUnit).
 RealOnline.Reward.IntervalCount = 1
-# minimální level hráče pro nárok (0 = neomezovat)
+
+# Minimální level hráče pro nárok (0 = neomezovat).
+# Minimum player level required (0 = no limit).
 RealOnline.Reward.MinLevel = 0
 
 # ==== Tokeny za milníky levelů ====
+# Aktivace udělování tokenů při dosažení zadaných levelů.
+# Grant tokens when reaching the specified level milestones.
 Token.Level.Enable = 1
+
+# Seznam milníků levelů (čárkami oddělený).
+# Comma-separated list of level milestones.
 Token.Level.Milestones = 10,20,30,40,50,60,70,80
-# pro každý milník nastav item a počet
+
+# Pro každý milník nastav item a počet.
+# For each milestone set the item and amount.
 Token.Level.10.ItemId  = 37711
 Token.Level.10.Count   = 1
 Token.Level.20.ItemId  = 37711
@@ -54,16 +101,34 @@ Token.Level.70.Count   = 7
 Token.Level.80.ItemId  = 37711
 Token.Level.80.Count   = 8
 
-# inventory | entitlement
+# Způsob doručení: inventory = přímo do tašky, entitlement = uložit jako odměnu.
+# Delivery method: inventory = directly to bags, entitlement = store as reward.
 Token.Level.Delivery = entitlement
+
+# Oznámit udělení v chatu (1 = ano, 0 = ne).
+# Announce the grant in chat (1 = yes, 0 = no).
 Token.Level.Announce = 1
 
 # ==== Login Streak ====
+# Aktivace denních odměn za sérii přihlášení.
+# Enable daily rewards for login streaks.
 Token.Streak.Enable = 1
+
+# Základní denní odměna (item a počet).
+# Base daily reward (item and amount).
 Token.Streak.Base.ItemId = 37711
 Token.Streak.Base.Count  = 1
+
+# Délka cyklu ve dnech.
+# Cycle length in days.
 Token.Streak.CycleLength = 28
+
+# Speciální dny v rámci cyklu s bonusovou odměnou (čárkami oddělené).
+# Special days within the cycle that grant bonus rewards (comma-separated).
 Token.Streak.SpecialDays = 7,14,21,28
+
+# Konfigurace bonusových odměn pro uvedené dny.
+# Bonus reward configuration for the listed special days.
 Token.Streak.Special.7.ItemId  = 37711
 Token.Streak.Special.7.Count   = 7
 Token.Streak.Special.14.ItemId = 37711
@@ -72,9 +137,20 @@ Token.Streak.Special.21.ItemId = 37711
 Token.Streak.Special.21.Count  = 21
 Token.Streak.Special.28.ItemId = 37711
 Token.Streak.Special.28.Count  = 28
+
+# Hodina, kdy se „láme den“ (0–23). V tuto hodinu se počítá nový den pro streak.
+# Hour of the “day boundary” (0–23). New streak day starts at this hour.
 Token.Streak.DayBoundaryHour = 4
+
+# Resetovat streak při vynechání dne (1 = ano, 0 = ne).
+# Reset the streak if a day is missed (1 = yes, 0 = no).
 Token.Streak.ResetOnMiss = 1
 
-# inventory | entitlement
+# Způsob doručení: inventory = přímo do tašky, entitlement = uložit jako odměnu.
+# Delivery method: inventory = directly to bags, entitlement = store as reward.
 Token.Streak.Delivery = entitlement
+
+# Oznámit udělení v chatu (1 = ano, 0 = ne).
+# Announce the grant in chat (1 = yes, 0 = no).
 Token.Streak.Announce = 1
+
