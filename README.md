@@ -1,5 +1,10 @@
 # mod-real-online
 
+
+🌍 Vyber jazyk / Choose language:
+- [Čeština](./README_CS.md)
+- [English](./README_EN.md)
+
 > ⚠️ **Upozornění (CZ):**  
 > Před použitím tohoto modulu si **důkladně** přečti soubor [README_CS.md](./README_CS.md).  
 > Obsahuje zásadní informace o fungování a omezeních modulu.  
@@ -22,9 +27,6 @@
 
 ----------------------------------------------------------------------------------------------------------------
 
-🌍 Vyber jazyk / Choose language:
-- [Čeština](./README_CS.md)
-- [English](./README_EN.md)
 
 
 
