@@ -33,6 +33,18 @@ Modul používá vlastní DB customs a tabulky pro zápis a čtení dat které d
 .reward claim
 ➝ Vyzvedne dostupné odměny
 
+.token
+➝ zobrazí dostupné odměny
+
+.token deposit 
+➝ Uskladní dostupné tokeny
+➝ Použití: .token deposit 6
+
+.token withdraw
+➝ Vyzvedne dostupné tokeny
+➝ Použití: .token withdraw 6
+
 ## License
 
 This module is licensed under the [GNU General Public License v2.0 (GPL-2.0)](LICENSE).
+
