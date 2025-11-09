@@ -619,22 +619,12 @@ public:
 		
 			if (LangOpt()==Lang::EN)
 			{
-				handler->SendSysMessage("Use:");
-				handler->SendSysMessage(".token deposit <count> – deposit tokens from your bags");
-				handler->SendSysMessage(".token withdraw <count> – withdraw stored tokens to your bags");
-				handler->SendSysMessage(std::string(70, '#').c_str());
-		
 				std::ostringstream ss;
 				ss << "Stored tokens: " << stored;
 				handler->SendSysMessage(ss.str().c_str());
 			}
 			else
-			{
-				handler->SendSysMessage("Použití:");
-				handler->SendSysMessage(".token deposit <pocet> – vloží tokeny z tašek do úschovy");
-				handler->SendSysMessage(".token withdraw <pocet> – vybere tokeny z úschovy do tašek");
-				handler->SendSysMessage(std::string(70, '#').c_str());
-		
+			{	
 				std::ostringstream ss;
 				ss << "Uskladněné tokeny: " << stored;
 				handler->SendSysMessage(ss.str().c_str());
