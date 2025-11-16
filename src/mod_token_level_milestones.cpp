@@ -48,7 +48,7 @@ static std::vector<uint32> ParseCSVu32(std::string const& s)
     return out;
 }
 
-// ==== NEW: range parser pro blokaci účtů (A-B;C-D;...) ====
+// ==== range parser pro blokaci účtů (A-B;C-D;...) ====
 struct Range { uint32 min = 0, max = 0; };
 
 static std::vector<Range> ParseRanges(std::string const& txt)
@@ -151,19 +151,17 @@ static void HandleLevelMilestone(Player* player)
 
     uint32 itemId = 0, count = 0;
     if (!GetMilestoneReward(level, itemId, count))
-        return; // pro tenhle milník není odměna v configu
+        return;
 
     uint32 acc  = player->GetSession()->GetAccountId();
     uint32 guid = player->GetGUID().GetCounter();
 
-    // NEW: blokace účtů podle RealOnline.IgnoreAccountIdRanges
     {
         std::vector<Range> blocked = ParseRanges(sConfigMgr->GetOption<std::string>("RealOnline.IgnoreAccountIdRanges", ""));
         if (!blocked.empty() && InRanges(acc, blocked))
-            return; // účet je blokován pro odměny
+            return;
     }
 
-    // a) už vyplaceno téhle postavě pro tenhle milník?
     std::string q1 =
         "SELECT 1 FROM customs.level_milestones "
         "WHERE account=" + std::to_string(acc) +
@@ -171,9 +169,8 @@ static void HandleLevelMilestone(Player* player)
         " AND milestone=" + std::to_string(level) +
         " LIMIT 1";
     if (QueryResult r = CharacterDatabase.Query(q1.c_str()))
-        return; // existuje záznam -> nic nevyplácet znovu
+        return;
 
-    // b) cap pro účet (max 10x na účet a milník)
     std::string q2 =
         "SELECT COUNT(*) FROM customs.level_milestones "
         "WHERE account=" + std::to_string(acc) +
@@ -184,7 +181,6 @@ static void HandleLevelMilestone(Player* player)
     if (totalForAcc >= 10)
         return;
 
-    // c) zapiš a vyplať
     std::string ins =
         "INSERT INTO customs.level_milestones (account,guid,milestone) VALUES (" +
         std::to_string(acc) + "," + std::to_string(guid) + "," + std::to_string(level) + ")";
@@ -219,21 +215,18 @@ public:
 
         uint32 newLevel = player->GetLevel();
         if (newLevel <= oldLevel)
-            return; // ignoruj de-level nebo beze změny
+            return;
 
         uint32 acc = player->GetSession()->GetAccountId();
         uint32 guidLow = player->GetGUID().GetCounter();
 
-        // NEW: blokace účtů podle RealOnline.IgnoreAccountIdRanges (parsuj jednou)
         std::vector<Range> blocked = ParseRanges(sConfigMgr->GetOption<std::string>("RealOnline.IgnoreAccountIdRanges", ""));
         bool isBlocked = (!blocked.empty() && InRanges(acc, blocked));
 
-        // od prvního celého násobku 10 nad oldLevel až po newLevel (max 80)
         uint32 start = oldLevel + 1;
         uint32 end   = newLevel;
         uint32 firstMilestone = ((start + 9) / 10) * 10;
 
-        // pro jistotu použijeme i seznam z configu (musí obsahovat 10,20,..)
         auto ms = cfg.milestones;
 
         for (uint32 m = firstMilestone; m <= end && m <= 80; m += 10)
@@ -245,11 +238,9 @@ public:
             if (!GetMilestoneReward(m, itemId, count))
                 continue;
 
-            // účet je blokován pro odměny -> přeskoč vyplácení / zápisy
             if (isBlocked)
                 continue;
 
-            // cap: max 10 odměn na účet a milník (historicky)
             uint32 totalForAcc = 0;
             {
                 std::string q = "SELECT COUNT(*) FROM customs.level_milestones WHERE account="
@@ -260,12 +251,10 @@ public:
             if (totalForAcc >= 10)
                 continue;
 
-            // pokus o záznam pro (account,guid,milestone)
             std::string ins = "INSERT IGNORE INTO customs.level_milestones (account,guid,milestone) VALUES ("
                             + std::to_string(acc) + "," + std::to_string(guidLow) + "," + std::to_string(m) + ")";
             CharacterDatabase.DirectExecute(ins.c_str());
 
-            // ověř, zda se vložilo (tj. ještě nebylo vyplaceno této postavě)
             uint32 nowCount = 0;
             {
                 std::string q2 = "SELECT COUNT(*) FROM customs.level_milestones WHERE account="
@@ -277,10 +266,8 @@ public:
             if (nowCount == 0)
                 continue;
 
-            // vyplať
             DeliverRewardToPlayerOrEntitlement(player, acc, itemId, count, cfg.delivery);
 
-            // oznámení
             if (cfg.announce)
             {
                 std::ostringstream ss;

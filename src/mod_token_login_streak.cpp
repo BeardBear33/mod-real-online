@@ -173,17 +173,15 @@ static void HandleLoginStreak(Player* player)
     uint32 acc = player->GetSession()->GetAccountId();
     uint32 today = TodaySerial(cfg.dayBoundaryHour);
 
-// Blokace účtů pro denní odměny podle RealOnline.IgnoreAccountIdRanges
 {
     std::vector<Range> blocked = ParseRanges(sConfigMgr->GetOption<std::string>("RealOnline.IgnoreAccountIdRanges", ""));
     if (!blocked.empty() && InRanges(acc, blocked))
-        return; // účet je blokovaný – žádný zápis ani vyplácení
+        return;
 }
 
 
     uint32 lastSerial = 0, lastRewardSerial = 0, streakDay = 0;
 
-    // načtení stavu
     {
         std::string q =
             "SELECT last_serial, last_reward_serial, streak_day FROM customs.login_streak WHERE account=" +
@@ -197,7 +195,6 @@ static void HandleLoginStreak(Player* player)
         }
         else
         {
-            // první záznam pro účet = první den
             streakDay = 1;
 
             uint32 totalCount = cfg.baseCount;
@@ -217,7 +214,6 @@ static void HandleLoginStreak(Player* player)
                 }
             }
 
-            // vyplacení
             if (separateBonus)
             {
                 DeliverEntitlementOrInventory(player, acc, cfg.baseItem, cfg.baseCount, cfg.delivery);
@@ -228,14 +224,12 @@ static void HandleLoginStreak(Player* player)
                 DeliverEntitlementOrInventory(player, acc, cfg.baseItem, totalCount, cfg.delivery);
             }
 
-            // zápis
             std::string ins =
                 "INSERT INTO customs.login_streak (account,last_serial,last_reward_serial,streak_day) VALUES (" +
                 std::to_string(acc) + "," + std::to_string(today) + "," + std::to_string(today) + "," + std::to_string(streakDay) + ") "
                 "ON DUPLICATE KEY UPDATE last_serial=VALUES(last_serial), last_reward_serial=VALUES(last_reward_serial), streak_day=VALUES(streak_day)";
             CharacterDatabase.Execute(ins.c_str());
 
-            // hláška
             if (cfg.announce)
             {
                 std::ostringstream ss;
@@ -265,31 +259,25 @@ static void HandleLoginStreak(Player* player)
         }
     }
 
-    // existující účet
     int64 delta = static_cast<int64>(today) - static_cast<int64>(lastSerial);
 
     if (delta <= 0)
     {
-        // už dnes přihlášen: vyplatit pouze pokud ještě nebylo vyplaceno dnes
         if (lastRewardSerial == today)
             return;
-        // streakDay se nemění
     }
     else if (delta == 1)
     {
-        // nový den
         streakDay = (streakDay % cfg.cycleLen) + 1;
     }
     else
     {
-        // vynecháno víc dnů
         if (cfg.resetOnMiss)
             streakDay = 1;
         else
             streakDay = (streakDay % cfg.cycleLen) + 1;
     }
 
-    // bonusy
     uint32 totalCount = cfg.baseCount;
     bool separateBonus = false;
     uint32 spItem = 0, spCnt = 0;
@@ -303,7 +291,6 @@ static void HandleLoginStreak(Player* player)
             totalCount += spCnt;
     }
 
-    // update stavu (ať se vyplácí jen jednou denně na účet)
     {
         std::string up =
             "UPDATE customs.login_streak SET last_serial=" + std::to_string(today) +
@@ -313,7 +300,6 @@ static void HandleLoginStreak(Player* player)
         CharacterDatabase.Execute(up.c_str());
     }
 
-    // vyplacení
     if (separateBonus)
     {
         DeliverEntitlementOrInventory(player, acc, cfg.baseItem, cfg.baseCount, cfg.delivery);
@@ -324,7 +310,6 @@ static void HandleLoginStreak(Player* player)
         DeliverEntitlementOrInventory(player, acc, cfg.baseItem, totalCount, cfg.delivery);
     }
 
-    // hláška
     if (cfg.announce)
     {
         std::ostringstream ss;

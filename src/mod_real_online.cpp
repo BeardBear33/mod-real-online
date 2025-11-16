@@ -10,8 +10,6 @@
 #include "ObjectAccessor.h"
 #include "WorldSession.h"
 #include "WorldSessionMgr.h"
-
-// ==== doplněné ====
 #include "DatabaseEnv.h"
 #include "Item.h"
 #include <unordered_set>
@@ -117,7 +115,7 @@ static bool ParsePageOrRange(char const* args, uint32 total, uint32 pageSize,
         if (A == 0 || B == 0 || A > B) { err = T("Rozsah musí být A-B, A>=1, B>=A.", "Range must be A-B, A>=1, B>=A."); return false; }
         if (A > total) { err = T("Začátek rozsahu je mimo počet online hráčů.", "Range start is beyond online player count."); return false; }
         outBeginIndex = A - 1;
-        outEndIndex   = std::min(B, total); // EXCLUSIVE
+        outEndIndex   = std::min(B, total);
         return true;
     }
 
@@ -166,13 +164,12 @@ static RealOnlineMode GetMode()
         if (m == "session")
             return RealOnlineMode::Session;
     }
-    return RealOnlineMode::AccountId; // výchozí, zachová původní chování
+    return RealOnlineMode::AccountId;
 }
 
-// Build přes WorldSession (pouze reální hráči)
 static void BuildViaSessions(std::vector<Player*>& out, bool hideGMs, uint32 minLevel)
 {
-    auto const& sessions = sWorldSessionMgr->GetAllSessions(); // << pozor na '->'
+    auto const& sessions = sWorldSessionMgr->GetAllSessions();
     out.reserve(sessions.size());
 
     for (auto const& [accId, sess] : sessions)
@@ -190,8 +187,6 @@ static void BuildViaSessions(std::vector<Player*>& out, bool hideGMs, uint32 min
     }
 }
 
-
-// Build původním stylem (AccountID ranges) – kompatibilní s boty
 static void BuildViaAccountId(std::vector<Player*>& out, bool hideGMs, uint32 minLevel,
                               std::vector<Range> const& ignoreAccRanges)
 {
@@ -208,7 +203,6 @@ static void BuildViaAccountId(std::vector<Player*>& out, bool hideGMs, uint32 mi
         if (minLevel > 0 && p->GetLevel() < minLevel)
             continue;
 
-        // bot může/nemusí mít session – musíme ošetřit nullptr
         WorldSession* sess = p->GetSession();
         if (!ignoreAccRanges.empty() && sess)
         {
@@ -242,7 +236,6 @@ public:
 
     static bool HandleOnline(ChatHandler* handler, char const* args)
     {
-        // Config
         bool   showLevel = sConfigMgr->GetOption<bool>("RealOnline.ShowLevel", true);
         bool   hideGMs   = sConfigMgr->GetOption<bool>("RealOnline.HideGMs", false);
         uint32 pageSize  = sConfigMgr->GetOption<uint32>("RealOnline.PageSize", 10u);
@@ -250,7 +243,6 @@ public:
 
         if (pageSize == 0) pageSize = 10;
 
-        // Build seznam (vždy přes session)
 		std::vector<Player*> list;
 		BuildViaSessions(list, hideGMs, minLevel);
 		
@@ -309,7 +301,7 @@ struct RewardCfg
 {
     bool   enable = false;
     uint32 itemId = 0;
-    uint32 intervalMs = 60000;    // default 1 min
+    uint32 intervalMs = 60000;
     uint32 minLevel = 0;
 };
 
@@ -321,7 +313,7 @@ static inline uint32 ReadIntervalMs()
 
     std::transform(unit.begin(), unit.end(), unit.begin(), ::tolower);
 
-    uint64 baseMs = 60000; // minute
+    uint64 baseMs = 60000;
     if (unit == "hour" || unit == "hours")
         baseMs = 3600000;
 
@@ -344,11 +336,9 @@ static void CollectOnlineRealAccountIds(std::vector<uint32>& out, bool hideGMs, 
 {
     out.clear();
 
-    // použijeme sessions (jen reální hráči)
     std::vector<Player*> list;
     BuildViaSessions(list, hideGMs, minLevel);
 
-    // blocklist účtů pro odměny z configu
     std::vector<Range> blockedRanges = ParseRanges(
         sConfigMgr->GetOption<std::string>("RealOnline.IgnoreAccountIdRanges", "")
     );
@@ -369,7 +359,6 @@ static void CollectOnlineRealAccountIds(std::vector<uint32>& out, bool hideGMs, 
         {
             uint32 acc = s->GetAccountId();
 
-            // Blokace odměn pro zadané AccountID/rozsahy
             if (!blockedRanges.empty() && InRanges(acc, blockedRanges))
                 continue;
 
@@ -397,7 +386,6 @@ public:
 
         _elapsed = 0;
 
-        // seber online účty (navázání na tvoji logiku)
         std::vector<uint32> accounts;
         CollectOnlineRealAccountIds(accounts,
             sConfigMgr->GetOption<bool>("RealOnline.HideGMs", false),
@@ -407,7 +395,6 @@ public:
         if (accounts.empty())
             return;
 
-        // Připis 1 entitlement/account (UPSERT) do customs.rewards
         for (uint32 acc : accounts)
         {
 			std::string q =
@@ -463,7 +450,6 @@ public:
 
         uint32 acc = handler->GetSession()->GetAccountId();
 
-        // Načti entitled/claimed z customs.rewards
         uint32 entitled = 0, claimed = 0;
         {
             std::string q =
@@ -638,7 +624,6 @@ public:
             return true;
         }
 
-        // rozdělení subpříkazu + číslo
         std::string cmd, num;
         {
             std::stringstream ss(sub);
@@ -646,7 +631,6 @@ public:
             ss >> num;
         }
 
-        // validace čísla
         auto parseCount = [&](std::string const& s, uint32& out)->bool{
             if (s.empty() || !std::all_of(s.begin(), s.end(), ::isdigit))
                 return false;
@@ -678,10 +662,8 @@ public:
                 return true;
             }
 
-            // odeber z inventáře
             plr->DestroyItemCount(cfg.itemId, amount, true, false);
 
-            // navýš stored
             UpsertAddStored(acc, cfg.itemId, amount);
 
             std::ostringstream ok;
@@ -713,7 +695,6 @@ public:
                 return true;
             }
 
-            // zkusit místo v taškách
             ItemPosCountVec dest;
             InventoryResult canStore = plr->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, cfg.itemId, amount);
             if (canStore != EQUIP_ERR_OK)
@@ -725,12 +706,10 @@ public:
                 return true;
             }
 
-            // dej itemy do tašek
             if (Item* it = plr->StoreNewItem(dest, cfg.itemId, true, Item::GenerateItemRandomPropertyId(cfg.itemId)))
             {
                 plr->SendNewItem(it, amount, true, false);
 
-                // odečti stored
                 std::string up = "UPDATE customs.rewards SET `stored` = `stored` - " + std::to_string(amount)
 							   + ", updated_at = NOW() WHERE account=" + std::to_string(acc)
 							   + " AND item=" + std::to_string(cfg.itemId) + " AND `stored` >= " + std::to_string(amount);
@@ -751,7 +730,6 @@ public:
             return true;
         }
 
-        // neznámý subpříkaz
         if (LangOpt()==Lang::EN)
             handler->SendSysMessage("Unknown parameter. Use \".token\", \".token deposit <count>\", or \".token withdraw <count>\".");
         else
@@ -760,24 +738,16 @@ public:
     }
 };
 
-// forward deklarace nových registrátorů (mimo tělo funkce)
 void Addmod_token_level_milestonesScripts();
 void Addmod_token_login_streakScripts();
 
-// entry-point modulu – bez něj by se příkaz neregistroval
 void Addmod_real_onlineScripts()
 {
-    // PŮVODNÍ REGISTRACE – 1:1
     new RealOnlineCommand();
-
-    // NAVÁZANÉ NOVINKY
     new RealOnlineRewardTicker();
     new RewardCommand();
-
-    // .token banka
     new TokenBankCommand();
 
-    // přidej nové skripty
     Addmod_token_level_milestonesScripts();
     Addmod_token_login_streakScripts();
 }
