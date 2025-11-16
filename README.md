@@ -35,5 +35,4 @@ An AzerothCore module for playerbots that allows you to display only real online
 ----------------------------------------------------------------------------------------------------------------
 
 ## License
-This module is licensed under the [GNU General Public License v3.0 (GPL-3.0)](LICENSE).
-
+This module is licensed under the [GNU AFFERO GENERAL PUBLIC LICENSE](LICENSE).
