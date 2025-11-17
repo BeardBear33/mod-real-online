@@ -1,7 +1,5 @@
 # Real Online
 
-**Real Online**
-
 AzerothCore modul pro playerboty, který umožňuje příkazem zobrazit pouze skutečné hráče online. Zároveň nabízí možnost využít Token Systém, jenž ignoruje playerboty a cílí výhradně na reálné hráče.
 
 An AzerothCore module for playerbots that allows you to display only real online players via command. It also provides an optional Token System that completely ignores playerbots and targets real players only.
@@ -35,4 +33,5 @@ An AzerothCore module for playerbots that allows you to display only real online
 ----------------------------------------------------------------------------------------------------------------
 
 ## License
+
 This module is licensed under the [GNU AFFERO GENERAL PUBLIC LICENSE](LICENSE).
