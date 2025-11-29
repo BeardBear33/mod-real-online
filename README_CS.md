@@ -10,18 +10,19 @@ Tento modul umožňuje:
 - Odměnu každých X hodin/minut (ignoruje randomboty i altboty)
 - Reward a Claim systém přes příkaz.
 
-### Požadavky  
-Před použitím je nutné zajistit, aby uživatel databáze z `WorldDatabaseInfo` (standardně `acore`) měl práva i na novou databázi `customs`:  
+### Instalace / Požadavky  
+Modul obsahuje autoupdater tudíž není potřeba ručně importovat .sql  
+Pro správnou funkčnost autoupdateru je nutné zajistit, aby uživatel databáze z `(WorldDatabaseInfo) – "127.0.0.1;3306;acore;acore;acore_world"`  
+měl práva i na novou databázi customs:
 
-```sql
-GRANT ALL PRIVILEGES ON customs.* TO 'acore'@'localhost';
-FLUSH PRIVILEGES;
 ```
+GRANT CREATE ON *.* TO 'acore'@'127.0.0.1';
+GRANT ALL PRIVILEGES ON customs.* TO 'acore'@'127.0.0.1';
+FLUSH PRIVILEGES;
+```  
 
 ### ⚠️ Upozornění
-Modul používá upravuje testovací token v item_template .sql z world/base/token_apply.sql je volitelné:
-Neimportovat .sql z world/backup/token_revert.sql pokud nechcete vrátit původní testovací token
-Modul používá vlastní DB customs a tabulky pro zápis a čtení dat které dále používá.
+Modul upravuje testovací verzi tokenu v item_template pokud nevyužíváte pro žádný jiný modul itemid 37711 není potřeba nic řešit.
 
 ### Příkazy
 .online
@@ -43,9 +44,5 @@ Modul používá vlastní DB customs a tabulky pro zápis a čtení dat které d
 .token withdraw
 ➝ Vyzvedne dostupné tokeny
 ➝ Použití: .token withdraw 6
-
-## License
-
-This module is licensed under the [GNU General Public License v3.0 (GPL-3.0)](LICENSE).
 
 

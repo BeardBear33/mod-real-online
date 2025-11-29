@@ -738,11 +738,14 @@ public:
     }
 };
 
+void RegisterRealOnlineCustomsUpdater();
 void Addmod_token_level_milestonesScripts();
 void Addmod_token_login_streakScripts();
 
 void Addmod_real_onlineScripts()
 {
+	RegisterRealOnlineCustomsUpdater();
+	
     new RealOnlineCommand();
     new RealOnlineRewardTicker();
     new RewardCommand();

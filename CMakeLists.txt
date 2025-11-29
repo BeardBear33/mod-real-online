@@ -5,6 +5,7 @@ set(scripts_STAT_SRCS
   src/mod_real_online.cpp
   src/mod_token_level_milestones.cpp
   src/mod_token_login_streak.cpp
+  src/autoupdate.cpp
 )
 
 AC_ADD_SCRIPT("${scripts_STAT_SRCS}")

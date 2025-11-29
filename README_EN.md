@@ -3,30 +3,26 @@
 ### 🇨🇿 [Česká verze](README_CS.md)
 
 ## Description (EN)
-- This module allows you to:
-
-- Display real players without Randombots and Altbots
-
-- Reward for daily login with bonus day
-
+This module allows you to:  
+- Display real players without Randombots and Altbots  
+- Reward for daily login with bonus day  
 - Reward for every 10 levels (10,20,30,40,50,60,70,80) for the first 10 characters on an account
+- Reward every X hours/minutes  
+- Reward and Claim system via command  
 
-- Reward every X hours/minutes
+### Installation / Requirements
+The module includes an autoupdater, so there’s no need to manually import any .sql files.  
+For the autoupdater to function correctly, it is necessary to ensure that the database user from `(WorldDatabaseInfo) – "127.0.0.1;3306;acore;acore;acore_world"`  
+has permissions for the new `customs` database as well:
 
-- Reward and Claim system via command
-
-### Requirements
-Before use, ensure that the database user from WorldDatabaseInfo (default acore) also has access to the new customs schema:
-
-```sql
-GRANT ALL PRIVILEGES ON customs.* TO 'acore'@'localhost';
-FLUSH PRIVILEGES;
 ```
+GRANT CREATE ON *.* TO 'acore'@'127.0.0.1';
+GRANT ALL PRIVILEGES ON customs.* TO 'acore'@'127.0.0.1';
+FLUSH PRIVILEGES;
+```  
 
 ### ⚠️ Warning – Reserved IDs
-The module modifies the test token in item_template via world/base/token_apply.sql (optional):
-Do not import world/backup/token_revert.sql if you don’t want to restore the original test token.
-The module uses its own customs database and tables for writing and reading data which it then utilizes.
+The module modifies the test version of the token in item_template. If you are not using item ID 37711 for any other module, you don’t need to do anything.
 
 ### Commands
 .online
@@ -48,8 +44,4 @@ The module uses its own customs database and tables for writing and reading data
 .token withdraw
 ➝ Withdraw available tokens
 ➝ Usage: .token withdraw 6
-
-## License
-
-This module is licensed under the [GNU General Public License v3.0 (GPL-3.0)](LICENSE).
 

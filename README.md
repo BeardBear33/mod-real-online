@@ -34,4 +34,4 @@ An AzerothCore module for playerbots that allows you to display only real online
 
 ## License
 
-This module is licensed under the [GNU AFFERO GENERAL PUBLIC LICENSE](LICENSE).
+This module is licensed under the [GNU Affero General Public License v3.0](https://github.com/BeardBear33/mod-real-online/blob/main/LICENSE).
