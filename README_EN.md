@@ -21,6 +21,12 @@ GRANT ALL PRIVILEGES ON customs.* TO 'acore'@'127.0.0.1';
 FLUSH PRIVILEGES;
 ```  
 
+**Optional:**
+- Add this line to worldserver.conf:  
+  Logger.gv.customs=3,Console Server
+
+##
+
 ### ⚠️ Warning – Reserved IDs
 The module modifies the test version of the token in item_template. If you are not using item ID 37711 for any other module, you don’t need to do anything.
 
