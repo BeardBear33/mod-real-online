@@ -1,4 +1,4 @@
-# mod-treasure  
+# mod-real-online
 
 ### 🇨🇿 [Česká verze](README_CS.md)
 
