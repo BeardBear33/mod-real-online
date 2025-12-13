@@ -1,6 +1,6 @@
 # mod-real-online
 
-### 🇨🇿 [Česká verze](README_CS.md)
+### 🇨🇿 [Czech version](README_CS.md)
 
 ## Description (EN)
 This module allows you to:  
