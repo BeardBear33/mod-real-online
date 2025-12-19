@@ -4,7 +4,13 @@ AzerothCore modul pro playerboty, který umožňuje příkazem zobrazit pouze sk
 
 An AzerothCore module for playerbots that allows you to display only real online players via command. It also provides an optional Token System that completely ignores playerbots and targets real players only.
 
----
+----------------------------------------------------------------------------------------------------------------
+
+## Addon
+> **Doporučený addon pro WoW 3.3.5a zajišťující správné zobrazování diakritiky:**  
+> [CzechFontFix (3.3.5a Addon)](https://github.com/BeardBear33/mod-guild-village/releases/tag/CFF_2.0)
+
+----------------------------------------------------------------------------------------------------------------
 
 🌍 Vyber jazyk / Choose language:
 - [Čeština](https://github.com/BeardBear33/mod-real-online/blob/main/README_CS.md)
@@ -23,7 +29,7 @@ An AzerothCore module for playerbots that allows you to display only real online
 🔧 Tento modul je primárně vyvíjen a testován na Ubuntu v kombinaci s:  
 [AzerothCore WotLK (Playerbot branch)](https://github.com/liyunfan1223/azerothcore-wotlk/tree/Playerbot)
 
-[mod-playerbots (master branch)](https://github.com/liyunfan1223/mod-playerbots)
+[mod-playerbots (master branch)](https://github.com/liyunfan1223/mod-playerbots)   
 
 🔧 This module is primarily developed and tested on Ubuntu using:  
 [AzerothCore WotLK (Playerbot branch)](https://github.com/liyunfan1223/azerothcore-wotlk/tree/Playerbot)
