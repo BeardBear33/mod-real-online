@@ -8,7 +8,7 @@ An AzerothCore module for playerbots that allows you to display only real online
 
 ## Addon
 > **Doporučený addon pro WoW 3.3.5a zajišťující správné zobrazování diakritiky:**  
-> [CzechFontFix (3.3.5a Addon)](https://github.com/BeardBear33/mod-guild-village/releases/tag/CFF_2.0)
+> [CzechFontFix (3.3.5a Addon)](https://github.com/BeardBear33/Czech-font-fix-addon/releases)
 
 ----------------------------------------------------------------------------------------------------------------
 
