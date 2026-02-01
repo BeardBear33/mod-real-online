@@ -37,12 +37,6 @@ RealOnline.PageSize = 10
 # Reward settings #
 #=================#
 
-# Rozsahy účtů, které nemají dostávat odměny
-# Formát: "min-max;min-max;..." (např. rozsahy účtů PlayerBots)
-# Account ranges that should not receive rewards
-# Format: "min-max;min-max;..." (e.g., ranges used by PlayerBots)
-RealOnline.IgnoreAccountIdRanges = "1-200"
-
 # ==== Reward za strávený čas ve hře ====
 # Odměny pro reálně připojené hráče (ne boty).
 # ==== Playtime rewards ====
@@ -146,3 +140,4 @@ Token.Streak.Delivery = entitlement
 # Announce the grant in chat (1 = yes, 0 = no).
 Token.Streak.Announce = 1
 
+RealOnline.Reward.MigrateUnclaimedToStored = 1

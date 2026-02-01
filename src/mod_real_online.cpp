@@ -21,6 +21,46 @@
 #include <cctype>
 
 // =============================
+// Playerbots (detekce typu hráče / bota)
+// =============================
+#if __has_include("PlayerbotAI.h") && __has_include("RandomPlayerbotMgr.h")
+  #include "PlayerbotAI.h"
+  #include "RandomPlayerbotMgr.h"
+  #define RO_HAS_PLAYERBOTS 1
+#else
+  #define RO_HAS_PLAYERBOTS 0
+#endif
+
+// ---- PlayerbotAI safe accessor (nepoužívat GET_PLAYERBOT_AI) ----
+#if RO_HAS_PLAYERBOTS
+static inline PlayerbotAI* RO_GetPlayerbotAI(Player* p)
+{
+    if (!p) return nullptr;
+
+    // Preferované na některých branchech
+    #if __has_include("Player.h")
+        // mnoho AC/playerbots větví má Player::GetPlayerbotAI()
+        // (když ne, kompilátor to odfiltruje až níže přes fallback)
+    #endif
+
+    // 1) Pokud existuje GetPlayerbotAI() metoda
+    //    (funguje na hodně playerbots branchech)
+    #if defined(__clang__) || defined(__GNUG__)
+        // Bezpečný trik: zkusíme zavolat, když existuje (SFINAE není snadné v C++14 bez templátů),
+        // proto jdeme přímo na fallback přes GetAI() níže, který bývá všude.
+    #endif
+
+    // 2) Univerzální fallback: Player::GetAI()
+    //    (na playerbots to obvykle vrací PlayerbotAI*)
+    if (UnitAI* ai = p->GetAI())
+        if (auto* pAI = dynamic_cast<PlayerbotAI*>(ai))
+            return pAI;
+
+    return nullptr;
+}
+#endif
+
+// =============================
 // Locale přepínač (CZ/EN) – čte RealOnline.Locale (cs|en)
 // =============================
 enum class Lang { CS, EN };
@@ -56,39 +96,61 @@ static const char* FactionNameFor(Player* p)
     }
 }
 
-struct Range { uint32 min=0, max=0; };
-
-static std::vector<Range> ParseRanges(std::string const& txt)
+// =============================
+// Playerbots třídění: Human / Alt / Random(Addclass)
+// =============================
+static inline bool RO_IsRandomOrAddclass(Player* p)
 {
-    std::vector<Range> out;
-    std::stringstream ss(txt);
-    std::string seg;
-    while (std::getline(ss, seg, ';'))
-    {
-        seg = Trim(seg);
-        if (seg.empty()) continue;
-        auto dash = seg.find('-');
-        if (dash == std::string::npos) continue;
-        std::string a = Trim(seg.substr(0, dash));
-        std::string b = Trim(seg.substr(dash + 1));
-        if (a.empty() || b.empty()) continue;
-        uint32 mn = uint32(std::stoul(a));
-        uint32 mx = uint32(std::stoul(b));
-        if (mn > mx) std::swap(mn, mx);
-        out.push_back({mn, mx});
-    }
-    return out;
-}
-
-static bool InRanges(uint32 id, std::vector<Range> const& rs)
-{
-    for (auto const& r : rs)
-        if (id >= r.min && id <= r.max)
-            return true;
+#if RO_HAS_PLAYERBOTS
+	return p &&
+		(sRandomPlayerbotMgr.IsRandomBot(p) || sRandomPlayerbotMgr.IsAddclassBot(p));
+#else
+    (void)p;
     return false;
+#endif
 }
 
+static inline bool RO_IsAltBot(Player* p)
+{
+#if RO_HAS_PLAYERBOTS
+    if (!p) return false;
+    if (RO_IsRandomOrAddclass(p)) return false; // random/addclass není alt
+    if (PlayerbotAI* ai = RO_GetPlayerbotAI(p))
+        return ai->IsAlt();
+    return false;
+#else
+    (void)p;
+    return false;
+#endif
+}
+
+// "Skutečný hráč" = human/master postava (ne alt, ne random/addclass)
+static inline bool RO_IsHuman(Player* p)
+{
+    if (!p) return false;
+
+#if RO_HAS_PLAYERBOTS
+    if (RO_IsRandomOrAddclass(p))
+        return false;
+
+    if (PlayerbotAI* ai = RO_GetPlayerbotAI(p))
+    {
+        if (ai->IsAlt())
+            return false;
+        return ai->IsRealPlayer(); // master == bot
+    }
+
+    // bez AI -> normální hráč
+    return true;
+#else
+    // fallback pokud by playerbots nebyly k dispozici
+    return true;
+#endif
+}
+
+// =============================
 // stránkování / rozsah A-B; výstup [begin, end) (EXCLUSIVE)
+// =============================
 static bool ParsePageOrRange(char const* args, uint32 total, uint32 pageSize,
                              uint32& outBeginIndex, uint32& outEndIndex, std::string& err)
 {
@@ -151,29 +213,17 @@ static bool ParsePageOrRange(char const* args, uint32 total, uint32 pageSize,
 #endif
 
 // =============================
-// Režimy výpisu
+// Sběr online hráčů přes sessions
 // =============================
-enum class RealOnlineMode { AccountId, Session };
-
-static RealOnlineMode GetMode()
-{
-    std::string m = sConfigMgr->GetOption<std::string>("RealOnline.Mode", "accountid");
-    if (!m.empty())
-    {
-        std::transform(m.begin(), m.end(), m.begin(), ::tolower);
-        if (m == "session")
-            return RealOnlineMode::Session;
-    }
-    return RealOnlineMode::AccountId;
-}
-
-static void BuildViaSessions(std::vector<Player*>& out, bool hideGMs, uint32 minLevel)
+static void BuildViaSessions(std::vector<Player*>& out, bool hideGMs, uint32 minLevel, bool onlyHumans)
 {
     auto const& sessions = sWorldSessionMgr->GetAllSessions();
     out.reserve(sessions.size());
 
     for (auto const& [accId, sess] : sessions)
     {
+        (void)accId;
+
         if (!sess) continue;
         Player* p = sess->GetPlayer();
         if (!p || !p->IsInWorld()) continue;
@@ -183,33 +233,8 @@ static void BuildViaSessions(std::vector<Player*>& out, bool hideGMs, uint32 min
         if (minLevel > 0 && p->GetLevel() < minLevel)
             continue;
 
-        out.push_back(p);
-    }
-}
-
-static void BuildViaAccountId(std::vector<Player*>& out, bool hideGMs, uint32 minLevel,
-                              std::vector<Range> const& ignoreAccRanges)
-{
-    auto const& players = ObjectAccessor::GetPlayers();
-    out.reserve(players.size());
-    for (auto const& it : players)
-    {
-        Player* p = it.second;
-        if (!p || !p->IsInWorld())
+        if (onlyHumans && !RO_IsHuman(p))
             continue;
-
-        if (hideGMs && p->IsGameMaster())
-            continue;
-        if (minLevel > 0 && p->GetLevel() < minLevel)
-            continue;
-
-        WorldSession* sess = p->GetSession();
-        if (!ignoreAccRanges.empty() && sess)
-        {
-            uint32 accId = sess->GetAccountId();
-            if (InRanges(accId, ignoreAccRanges))
-                continue;
-        }
 
         out.push_back(p);
     }
@@ -243,54 +268,54 @@ public:
 
         if (pageSize == 0) pageSize = 10;
 
-		std::vector<Player*> list;
-		BuildViaSessions(list, hideGMs, minLevel);
-		
-		std::sort(list.begin(), list.end(),
-				[](Player* a, Player* b){ return a->GetName() < b->GetName(); });
-		
-		uint32 total = uint32(list.size());
-		
-		uint32 beginIndex = 0, endIndex = 0;
-		std::string err;
-		if (!ParsePageOrRange(args, total, pageSize, beginIndex, endIndex, err))
-		{
-			handler->SendSysMessage(err.c_str());
-			return true;
-		}
-		
-		uint32 pages = (total + pageSize - 1) / pageSize;
-		if (pages == 0) pages = 1;
-		
-		bool lookedLikeRange = (args && std::string(args).find('-') != std::string::npos);
-		std::ostringstream head;
-		if (!lookedLikeRange)
-		{
-			uint32 page = (pageSize == 0) ? 1 : (beginIndex / pageSize + 1);
-			head << (LangOpt()==Lang::EN ? "Real players online: " : "Skuteční hráči online: ") << total
-				<< (LangOpt()==Lang::EN ? " (page " : " (stránka ") << page << "/" << pages
-				<< (LangOpt()==Lang::EN ? ", " : ", ")
-				<< pageSize << (LangOpt()==Lang::EN ? " per page)" : " na stránku)");
-		}
-		else
-		{
-			head << (LangOpt()==Lang::EN ? "Real players online: " : "Skuteční hráči online: ") << total
-				<< (LangOpt()==Lang::EN ? " (range " : " (rozsah ") << (beginIndex + 1) << "-" << endIndex << ")";
-		}
-		handler->SendSysMessage(head.str().c_str());
-		
-		std::ostringstream out;
-		for (uint32 i = beginIndex; i < endIndex; ++i)
-		{
-			Player* p = list[i];
-			out << p->GetName();
-			if (showLevel)
-				out << " [lvl " << uint32(p->GetLevel()) << "]";
-			out << " - " << FactionNameFor(p) << "\n";
-		}
-		handler->SendSysMessage(out.str().c_str());
-		return true;
-	}
+        std::vector<Player*> list;
+        BuildViaSessions(list, hideGMs, minLevel, /*onlyHumans=*/true);
+
+        std::sort(list.begin(), list.end(),
+            [](Player* a, Player* b){ return a->GetName() < b->GetName(); });
+
+        uint32 total = uint32(list.size());
+
+        uint32 beginIndex = 0, endIndex = 0;
+        std::string err;
+        if (!ParsePageOrRange(args, total, pageSize, beginIndex, endIndex, err))
+        {
+            handler->SendSysMessage(err.c_str());
+            return true;
+        }
+
+        uint32 pages = (total + pageSize - 1) / pageSize;
+        if (pages == 0) pages = 1;
+
+        bool lookedLikeRange = (args && std::string(args).find('-') != std::string::npos);
+        std::ostringstream head;
+        if (!lookedLikeRange)
+        {
+            uint32 page = (pageSize == 0) ? 1 : (beginIndex / pageSize + 1);
+            head << (LangOpt()==Lang::EN ? "Real players online: " : "Skuteční hráči online: ") << total
+                 << (LangOpt()==Lang::EN ? " (page " : " (stránka ") << page << "/" << pages
+                 << (LangOpt()==Lang::EN ? ", " : ", ")
+                 << pageSize << (LangOpt()==Lang::EN ? " per page)" : " na stránku)");
+        }
+        else
+        {
+            head << (LangOpt()==Lang::EN ? "Real players online: " : "Skuteční hráči online: ") << total
+                 << (LangOpt()==Lang::EN ? " (range " : " (rozsah ") << (beginIndex + 1) << "-" << endIndex << ")";
+        }
+        handler->SendSysMessage(head.str().c_str());
+
+        std::ostringstream out;
+        for (uint32 i = beginIndex; i < endIndex; ++i)
+        {
+            Player* p = list[i];
+            out << p->GetName();
+            if (showLevel)
+                out << " [lvl " << uint32(p->GetLevel()) << "]";
+            out << " - " << FactionNameFor(p) << "\n";
+        }
+        handler->SendSysMessage(out.str().c_str());
+        return true;
+    }
 };
 
 // =============================
@@ -332,42 +357,75 @@ static RewardCfg GetRewardCfg()
     return c;
 }
 
-static void CollectOnlineRealAccountIds(std::vector<uint32>& out, bool hideGMs, uint32 minLevel)
+// NOVÝ klíč: pouze jednorázová migrace při startu
+static inline bool RewardMigrateUnclaimedToStored()
+{
+    return sConfigMgr->GetOption<bool>("RealOnline.Reward.MigrateUnclaimedToStored", false);
+}
+
+// Online účty pro interval reward: pouze skuteční hráči (human/master), bez alt+random
+static void CollectOnlineHumanAccountIds(std::vector<uint32>& out, bool hideGMs, uint32 minLevel)
 {
     out.clear();
 
-    std::vector<Player*> list;
-    BuildViaSessions(list, hideGMs, minLevel);
-
-    std::vector<Range> blockedRanges = ParseRanges(
-        sConfigMgr->GetOption<std::string>("RealOnline.IgnoreAccountIdRanges", "")
-    );
+    auto const& sessions = sWorldSessionMgr->GetAllSessions();
 
     std::unordered_set<uint32> uniq;
-    uniq.reserve(list.size() * 2 + 8);
+    uniq.reserve(sessions.size() * 2 + 8);
 
-    for (Player* p : list)
+    for (auto const& [accId, sess] : sessions)
     {
+        if (!sess) continue;
+
+        Player* p = sess->GetPlayer();
         if (!p || !p->IsInWorld())
             continue;
+
         if (hideGMs && p->IsGameMaster())
             continue;
+
         if (minLevel > 0 && p->GetLevel() < minLevel)
             continue;
 
-        if (WorldSession* s = p->GetSession())
-        {
-            uint32 acc = s->GetAccountId();
+        if (!RO_IsHuman(p))
+            continue;
 
-            if (!blockedRanges.empty() && InRanges(acc, blockedRanges))
-                continue;
+        // accId ze sessions mapy je ok, ale vezmeme z session pro jistotu konzistence
+        uint32 acc = sess->GetAccountId();
 
-            if (uniq.insert(acc).second)
-                out.push_back(acc);
-        }
+        if (uniq.insert(acc).second)
+            out.push_back(acc);
     }
 }
 
+// =============================
+// Jednorázová migrace: entitled-claimed -> stored (jen když klíč = 1)
+// =============================
+class RealOnlineRewardMigrator : public WorldScript
+{
+public:
+    RealOnlineRewardMigrator() : WorldScript("RealOnlineRewardMigrator") {}
+
+    void OnStartup() override
+    {
+        if (!RewardMigrateUnclaimedToStored())
+            return;
+
+        RewardCfg cfg = GetRewardCfg();
+
+        std::string q =
+            "UPDATE customs.rewards "
+            "SET `stored` = `stored` + (`entitled` - `claimed`), "
+            "    `claimed` = `entitled`, "
+            "    updated_at = NOW() "
+            "WHERE `entitled` > `claimed`";
+
+        if (cfg.itemId != 0)
+            q += " AND `item` = " + std::to_string(cfg.itemId);
+
+        CharacterDatabase.DirectExecute(q.c_str());
+    }
+};
 
 class RealOnlineRewardTicker : public WorldScript
 {
@@ -387,7 +445,7 @@ public:
         _elapsed = 0;
 
         std::vector<uint32> accounts;
-        CollectOnlineRealAccountIds(accounts,
+        CollectOnlineHumanAccountIds(accounts,
             sConfigMgr->GetOption<bool>("RealOnline.HideGMs", false),
             std::max(cfg.minLevel, sConfigMgr->GetOption<uint32>("RealOnline.MinLevel", 0u))
         );
@@ -397,10 +455,15 @@ public:
 
         for (uint32 acc : accounts)
         {
-			std::string q =
-				"INSERT INTO customs.rewards (`account`,`item`,`entitled`,`claimed`,`stored`) "
-				"VALUES (" + std::to_string(acc) + "," + std::to_string(cfg.itemId) + ",1,0,0) "
-				"ON DUPLICATE KEY UPDATE `entitled` = `entitled` + 1, updated_at = NOW()";
+            // entitlement jde rovnou do stored a claimed se dorovnává
+            std::string q =
+                "INSERT INTO customs.rewards (`account`,`item`,`entitled`,`claimed`,`stored`) "
+                "VALUES (" + std::to_string(acc) + "," + std::to_string(cfg.itemId) + ",1,1,1) "
+                "ON DUPLICATE KEY UPDATE "
+                "  `entitled` = `entitled` + 1, "
+                "  `claimed`  = `claimed`  + 1, "
+                "  `stored`   = `stored`   + 1, "
+                "  updated_at = NOW()";
             CharacterDatabase.DirectExecute(q.c_str());
         }
     }
@@ -431,6 +494,15 @@ public:
         return cmds;
     }
 #endif
+
+    static uint32 ReadStored(uint32 acc, uint32 itemId)
+    {
+        std::string q = "SELECT `stored` FROM customs.rewards WHERE account="
+                    + std::to_string(acc) + " AND item=" + std::to_string(itemId) + " LIMIT 1";
+        if (QueryResult r = CharacterDatabase.Query(q.c_str()))
+            return r->Fetch()[0].Get<uint32>();
+        return 0;
+    }
 
     static bool HandleReward(ChatHandler* handler, char const* args)
     {
@@ -465,6 +537,7 @@ public:
         }
 
         uint32 available = (entitled > claimed) ? (entitled - claimed) : 0;
+        uint32 stored = ReadStored(acc, cfg.itemId);
 
         if (sub.empty())
         {
@@ -473,62 +546,52 @@ public:
             {
                 msg << "Total earned: " << entitled
                     << " | Total claimed: " << claimed
-                    << " | Available: " << available;
+                    << " | Available: " << available
+                    << " | Stored: " << stored;
                 handler->SendSysMessage(msg.str().c_str());
-                handler->SendSysMessage("Type \".reward claim\" to collect your reward.");
+                handler->SendSysMessage("Rewards are stored automatically. Use \".token withdraw <count>\".");
             }
             else
             {
                 msg << "Celkem získáno: " << entitled
                     << " | Celkem vyzvednuto: " << claimed
-                    << " | K dispozici: " << available;
+                    << " | K dispozici: " << available
+                    << " | Uskladněno: " << stored;
                 handler->SendSysMessage(msg.str().c_str());
-                handler->SendSysMessage("Napiš \".reward claim\" pro výběr odměny.");
+                handler->SendSysMessage("Odměny se ukládají automaticky do úschovy. Použij \".token withdraw <pocet>\".");
             }
             return true;
         }
 
         if (sub == "claim")
         {
+            // Už nechceme dávat itemy do bagů.
+            // Pro kompatibilitu: pokud někdo má historicky available>0, jen to přesuneme do stored.
             if (available == 0)
             {
-                handler->SendSysMessage(T("Nemáš nic k výběru.", "You have nothing to claim."));
-                return true;
-            }
-
-            uint32 countToGive = available;
-
-            ItemPosCountVec dest;
-            InventoryResult canStore = plr->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, cfg.itemId, countToGive);
-            if (canStore != EQUIP_ERR_OK)
-            {
                 handler->SendSysMessage(T(
-                    "Nemáš dost místa v taškách (výběr zrušen). Uvolni místo a zkus znovu.",
-                    "Not enough bag space (claim canceled). Free up space and try again."
+                    "Nemáš nic k výběru. Odměny se ukládají rovnou do úschovy.",
+                    "You have nothing to claim. Rewards are stored automatically."
                 ));
                 return true;
             }
 
-            if (Item* it = plr->StoreNewItem(dest, cfg.itemId, true, Item::GenerateItemRandomPropertyId(cfg.itemId)))
-            {
-                plr->SendNewItem(it, countToGive, true, false);
+            std::string up =
+                "UPDATE customs.rewards "
+                "SET `stored` = `stored` + " + std::to_string(available) + ", "
+                "    `claimed` = `entitled`, "
+                "    updated_at = NOW() "
+                "WHERE `account`=" + std::to_string(acc) +
+                " AND `item`=" + std::to_string(cfg.itemId) +
+                " AND `entitled` > `claimed`";
+            CharacterDatabase.DirectExecute(up.c_str());
 
-                std::string up =
-					"INSERT INTO customs.rewards (`account`,`item`,`entitled`,`claimed`,`stored`) "
-					"VALUES (" + std::to_string(acc) + "," + std::to_string(cfg.itemId) + ",0," + std::to_string(countToGive) + ",0) "
-					"ON DUPLICATE KEY UPDATE `claimed` = `claimed` + VALUES(`claimed`), updated_at = NOW()";
-                CharacterDatabase.DirectExecute(up.c_str());
-
-                std::ostringstream ok;
-                ok << (LangOpt()==Lang::EN ? "Claimed: Mystery Token " : "Vybráno: Mystery Token ")
-                   << countToGive << (LangOpt()==Lang::EN ? " pcs" : "ks");
-                handler->SendSysMessage(ok.str().c_str());
-            }
+            std::ostringstream ok;
+            if (LangOpt()==Lang::EN)
+                ok << "Moved to storage: " << available << " token(s). Use \".token withdraw <count>\".";
             else
-            {
-                handler->SendSysMessage(T("Chyba při ukládání itemu do inventáře.", "Error storing item in inventory."));
-            }
-
+                ok << "Přesunuto do úschovy: " << available << " tokenů. Použij \".token withdraw <pocet>\".";
+            handler->SendSysMessage(ok.str().c_str());
             return true;
         }
 
@@ -565,23 +628,22 @@ public:
 #endif
 
     static uint32 ReadStored(uint32 acc, uint32 itemId)
-	{
-		std::string q = "SELECT `stored` FROM customs.rewards WHERE account="
-					+ std::to_string(acc) + " AND item=" + std::to_string(itemId) + " LIMIT 1";
-		if (QueryResult r = CharacterDatabase.Query(q.c_str()))
-			return r->Fetch()[0].Get<uint32>();
-		return 0;
-	}
+    {
+        std::string q = "SELECT `stored` FROM customs.rewards WHERE account="
+                    + std::to_string(acc) + " AND item=" + std::to_string(itemId) + " LIMIT 1";
+        if (QueryResult r = CharacterDatabase.Query(q.c_str()))
+            return r->Fetch()[0].Get<uint32>();
+        return 0;
+    }
 
     static void UpsertAddStored(uint32 acc, uint32 itemId, uint32 add)
-	{
-		std::string up =
-			"INSERT INTO customs.rewards (`account`,`item`,`entitled`,`claimed`,`stored`) VALUES ("
-			+ std::to_string(acc) + "," + std::to_string(itemId) + ",0,0," + std::to_string(add) + ") "
-			"ON DUPLICATE KEY UPDATE `stored` = `stored` + VALUES(`stored`), updated_at = NOW()";
-		CharacterDatabase.DirectExecute(up.c_str());
-	}
-
+    {
+        std::string up =
+            "INSERT INTO customs.rewards (`account`,`item`,`entitled`,`claimed`,`stored`) VALUES ("
+            + std::to_string(acc) + "," + std::to_string(itemId) + ",0,0," + std::to_string(add) + ") "
+            "ON DUPLICATE KEY UPDATE `stored` = `stored` + VALUES(`stored`), updated_at = NOW()";
+        CharacterDatabase.DirectExecute(up.c_str());
+    }
 
     static bool HandleToken(ChatHandler* handler, char const* args)
     {
@@ -601,22 +663,21 @@ public:
         std::transform(sub.begin(), sub.end(), sub.begin(), ::tolower);
 
         auto showHelp = [&](){
-			uint32 stored = ReadStored(acc, cfg.itemId);
-		
-			if (LangOpt()==Lang::EN)
-			{
-				std::ostringstream ss;
-				ss << "Stored tokens: " << stored;
-				handler->SendSysMessage(ss.str().c_str());
-			}
-			else
-			{	
-				std::ostringstream ss;
-				ss << "Uskladněné tokeny: " << stored;
-				handler->SendSysMessage(ss.str().c_str());
-			}
-		};
+            uint32 stored = ReadStored(acc, cfg.itemId);
 
+            if (LangOpt()==Lang::EN)
+            {
+                std::ostringstream ss;
+                ss << "Stored tokens: " << stored;
+                handler->SendSysMessage(ss.str().c_str());
+            }
+            else
+            {
+                std::ostringstream ss;
+                ss << "Uskladněné tokeny: " << stored;
+                handler->SendSysMessage(ss.str().c_str());
+            }
+        };
 
         if (sub.empty())
         {
@@ -663,7 +724,6 @@ public:
             }
 
             plr->DestroyItemCount(cfg.itemId, amount, true, false);
-
             UpsertAddStored(acc, cfg.itemId, amount);
 
             std::ostringstream ok;
@@ -711,9 +771,9 @@ public:
                 plr->SendNewItem(it, amount, true, false);
 
                 std::string up = "UPDATE customs.rewards SET `stored` = `stored` - " + std::to_string(amount)
-							   + ", updated_at = NOW() WHERE account=" + std::to_string(acc)
-							   + " AND item=" + std::to_string(cfg.itemId) + " AND `stored` >= " + std::to_string(amount);
-					CharacterDatabase.DirectExecute(up.c_str());
+                               + ", updated_at = NOW() WHERE account=" + std::to_string(acc)
+                               + " AND item=" + std::to_string(cfg.itemId) + " AND `stored` >= " + std::to_string(amount);
+                CharacterDatabase.DirectExecute(up.c_str());
 
                 std::ostringstream ok;
                 if (LangOpt()==Lang::EN)
@@ -744,9 +804,13 @@ void Addmod_token_login_streakScripts();
 
 void Addmod_real_onlineScripts()
 {
-	RegisterRealOnlineCustomsUpdater();
-	
+    RegisterRealOnlineCustomsUpdater();
+
     new RealOnlineCommand();
+
+    // jednorázová migrace (jen když je klíč zapnutý)
+    new RealOnlineRewardMigrator();
+
     new RealOnlineRewardTicker();
     new RewardCommand();
     new TokenBankCommand();

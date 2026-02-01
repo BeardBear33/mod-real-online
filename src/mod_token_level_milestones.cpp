@@ -9,6 +9,109 @@
 #include <string>
 #include <vector>
 #include <sstream>
+#include <cctype>
+
+// =============================
+// Playerbots (detekce typu hráče / bota)
+//  - Milníky: povolit Human + Alt
+//  - Zakázat: RandomBot + AddclassBot
+// =============================
+#if __has_include("PlayerbotAI.h") && __has_include("RandomPlayerbotMgr.h")
+  #include "PlayerbotAI.h"
+  #include "RandomPlayerbotMgr.h"
+  #define RO_HAS_PLAYERBOTS 1
+#else
+  #define RO_HAS_PLAYERBOTS 0
+#endif
+
+// ---- PlayerbotAI safe accessor (nepoužívat GET_PLAYERBOT_AI) ----
+#if RO_HAS_PLAYERBOTS
+static inline PlayerbotAI* RO_GetPlayerbotAI(Player* p)
+{
+    if (!p) return nullptr;
+
+    // Preferované na některých branchech
+    #if __has_include("Player.h")
+        // mnoho AC/playerbots větví má Player::GetPlayerbotAI()
+        // (když ne, kompilátor to odfiltruje až níže přes fallback)
+    #endif
+
+    // 1) Pokud existuje GetPlayerbotAI() metoda
+    //    (funguje na hodně playerbots branchech)
+    #if defined(__clang__) || defined(__GNUG__)
+        // Bezpečný trik: zkusíme zavolat, když existuje (SFINAE není snadné v C++14 bez templátů),
+        // proto jdeme přímo na fallback přes GetAI() níže, který bývá všude.
+    #endif
+
+    // 2) Univerzální fallback: Player::GetAI()
+    //    (na playerbots to obvykle vrací PlayerbotAI*)
+    if (UnitAI* ai = p->GetAI())
+        if (auto* pAI = dynamic_cast<PlayerbotAI*>(ai))
+            return pAI;
+
+    return nullptr;
+}
+#endif
+
+static inline std::string ToLower(std::string s)
+{
+    std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+    return s;
+}
+
+static inline bool RO_IsRandomOrAddclass(Player* p)
+{
+#if RO_HAS_PLAYERBOTS
+	return p &&
+		(sRandomPlayerbotMgr.IsRandomBot(p) || sRandomPlayerbotMgr.IsAddclassBot(p));
+#else
+    (void)p;
+    return false;
+#endif
+}
+
+static inline bool RO_IsAltBot(Player* p)
+{
+#if RO_HAS_PLAYERBOTS
+    if (!p) return false;
+    if (RO_IsRandomOrAddclass(p)) return false;
+    if (PlayerbotAI* ai = RO_GetPlayerbotAI(p))
+        return ai->IsAlt();
+    return false;
+#else
+    (void)p;
+    return false;
+#endif
+}
+
+static inline bool RO_IsHuman(Player* p)
+{
+    if (!p) return false;
+
+#if RO_HAS_PLAYERBOTS
+    if (RO_IsRandomOrAddclass(p))
+        return false;
+
+    if (PlayerbotAI* ai = RO_GetPlayerbotAI(p))
+    {
+        if (ai->IsAlt())
+            return false;
+        return ai->IsRealPlayer(); // master == bot
+    }
+
+    return true;
+#else
+    return true;
+#endif
+}
+
+// Milestones: povolit human + alt, zakázat random/addclass
+static inline bool RO_AllowMilestoneReward(Player* p)
+{
+    if (!p) return false;
+    if (RO_IsRandomOrAddclass(p)) return false;
+    return RO_IsHuman(p) || RO_IsAltBot(p);
+}
 
 // ==== Locale přepínač (CZ/EN) – čte RealOnline.Locale (cs|en) ====
 enum class Lang { CS, EN };
@@ -48,66 +151,62 @@ static std::vector<uint32> ParseCSVu32(std::string const& s)
     return out;
 }
 
-// ==== range parser pro blokaci účtů (A-B;C-D;...) ====
-struct Range { uint32 min = 0, max = 0; };
-
-static std::vector<Range> ParseRanges(std::string const& txt)
-{
-    std::vector<Range> out;
-    std::stringstream ss(txt);
-    std::string seg;
-    while (std::getline(ss, seg, ';'))
-    {
-        seg = Trim(seg);
-        if (seg.empty()) continue;
-        auto dash = seg.find('-');
-        if (dash == std::string::npos) continue;
-        std::string a = Trim(seg.substr(0, dash));
-        std::string b = Trim(seg.substr(dash + 1));
-        if (a.empty() || b.empty()) continue;
-        uint32 mn = 0, mx = 0;
-        try { mn = static_cast<uint32>(std::stoul(a)); mx = static_cast<uint32>(std::stoul(b)); } catch (...) { continue; }
-        if (mn > mx) std::swap(mn, mx);
-        out.push_back({ mn, mx });
-    }
-    return out;
-}
-
-static bool InRanges(uint32 id, std::vector<Range> const& rs)
-{
-    for (auto const& r : rs)
-        if (id >= r.min && id <= r.max)
-            return true;
-    return false;
-}
-
+// =====================================================================
+// Delivery:
+//  - inventory  -> pokus do bagů; když nejde, uloží do token banky (customs.rewards stored)
+//  - entitlement/stored/bank -> rovnou do token banky (bez pokusu o inventory)
+// =====================================================================
 static bool DeliverRewardToPlayerOrEntitlement(Player* plr, uint32 accountId, uint32 itemId, uint32 count, std::string const& deliveryMode)
 {
     std::string mode = deliveryMode;
     std::transform(mode.begin(), mode.end(), mode.begin(), ::tolower);
 
-    if (mode == "inventory")
+    auto upsertToBank = [&]()
     {
-        ItemPosCountVec dest;
-        if (plr->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, itemId, count) == EQUIP_ERR_OK)
+        // Entitlement nyní znamená "připsat do banky" (stored) a dorovnat claimed,
+        // aby nevznikaly nevyzvednuté odměny.
+        std::string up =
+            "INSERT INTO customs.rewards (`account`,`item`,`entitled`,`claimed`,`stored`) VALUES ("
+            + std::to_string(accountId) + "," + std::to_string(itemId) + "," + std::to_string(count) + "," + std::to_string(count) + "," + std::to_string(count) + ") "
+            "ON DUPLICATE KEY UPDATE "
+            "  `entitled` = `entitled` + VALUES(`entitled`), "
+            "  `claimed`  = `claimed`  + VALUES(`claimed`), "
+            "  `stored`   = `stored`   + VALUES(`stored`), "
+            "  updated_at = NOW()";
+        CharacterDatabase.DirectExecute(up.c_str());
+        return true;
+    };
+
+    // Režimy, které mají jít rovnou do banky (kompatibilita: entitlement zůstává, jen dělá stored)
+    if (mode == "entitlement" || mode == "stored" || mode == "bank" || mode == "tokenbank")
+        return upsertToBank();
+
+    // Default + explicitní inventory
+    if (mode != "inventory")
+        mode = "inventory";
+
+    // inventory: zkusit dát hráči do bagů, když nejde -> bank + info
+    ItemPosCountVec dest;
+    if (plr && plr->GetSession() && plr->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, itemId, count) == EQUIP_ERR_OK)
+    {
+        if (Item* it = plr->StoreNewItem(dest, itemId, true))
         {
-            if (Item* it = plr->StoreNewItem(dest, itemId, true))
-            {
-                plr->SendNewItem(it, count, true, false);
-                return true;
-            }
+            plr->SendNewItem(it, count, true, false);
+            return true;
         }
+    }
+
+    // fallback do banky
+    upsertToBank();
+
+    if (plr && plr->GetSession())
+    {
         ChatHandler(plr->GetSession()).SendSysMessage(T(
-            "Inventář je plný, odměna byla připsána na účet. Vyzvedni pomocí \".reward claim\".",
-            "Inventory is full, reward was credited to your account. Use \".reward claim\" to collect."
+            "Inventář je plný, odměna byla uložena do token banky. Vyber pomocí \".token withdraw <pocet>\" (stav: \".token\").",
+            "Inventory is full, reward was stored in token bank. Use \".token withdraw <count>\" (status: \".token\")."
         ));
     }
 
-    std::string up =
-        "INSERT INTO customs.rewards (account,item,entitled,claimed) VALUES (" +
-        std::to_string(accountId) + "," + std::to_string(itemId) + "," + std::to_string(count) + ",0) "
-        "ON DUPLICATE KEY UPDATE entitled = entitled + VALUES(entitled), updated_at = NOW()";
-    CharacterDatabase.DirectExecute(up.c_str());
     return true;
 }
 
@@ -145,6 +244,10 @@ static void HandleLevelMilestone(Player* player)
     if (!cfg.enable || !player || !player->GetSession())
         return;
 
+    // FILTR: milníky jen human + alt, nikdy random/addclass
+    if (!RO_AllowMilestoneReward(player))
+        return;
+
     uint32 level = player->GetLevel();
     if (level < 10 || level > 80 || (level % 10) != 0)
         return;
@@ -155,12 +258,6 @@ static void HandleLevelMilestone(Player* player)
 
     uint32 acc  = player->GetSession()->GetAccountId();
     uint32 guid = player->GetGUID().GetCounter();
-
-    {
-        std::vector<Range> blocked = ParseRanges(sConfigMgr->GetOption<std::string>("RealOnline.IgnoreAccountIdRanges", ""));
-        if (!blocked.empty() && InRanges(acc, blocked))
-            return;
-    }
 
     std::string q1 =
         "SELECT 1 FROM customs.level_milestones "
@@ -196,10 +293,9 @@ static void HandleLevelMilestone(Player* player)
         else
             ss << "Gratuluji! Dosáhl jsi " << level << ". levelu a získáváš " << count << "x Mystery Token.";
         ChatHandler(player->GetSession()).SendSysMessage(ss.str().c_str());
+        player->GetSession()->SendAreaTriggerMessage(ss.str().c_str());
     }
 }
-
-
 
 // ==== script ====
 class TokenLevelMilestones : public PlayerScript
@@ -213,15 +309,16 @@ public:
         if (!cfg.enable || !player || !player->GetSession())
             return;
 
+        // FILTR: milníky jen human + alt, nikdy random/addclass
+        if (!RO_AllowMilestoneReward(player))
+            return;
+
         uint32 newLevel = player->GetLevel();
         if (newLevel <= oldLevel)
             return;
 
         uint32 acc = player->GetSession()->GetAccountId();
         uint32 guidLow = player->GetGUID().GetCounter();
-
-        std::vector<Range> blocked = ParseRanges(sConfigMgr->GetOption<std::string>("RealOnline.IgnoreAccountIdRanges", ""));
-        bool isBlocked = (!blocked.empty() && InRanges(acc, blocked));
 
         uint32 start = oldLevel + 1;
         uint32 end   = newLevel;
@@ -236,9 +333,6 @@ public:
 
             uint32 itemId = 0, count = 0;
             if (!GetMilestoneReward(m, itemId, count))
-                continue;
-
-            if (isBlocked)
                 continue;
 
             uint32 totalForAcc = 0;

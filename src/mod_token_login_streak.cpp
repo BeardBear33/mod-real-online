@@ -9,6 +9,75 @@
 #include <string>
 #include <vector>
 #include <sstream>
+#include <unordered_map>
+#include <cctype>
+#include "ObjectAccessor.h"
+#include "EventProcessor.h"
+
+// =============================
+// Playerbots (detekce typu hráče / bota)
+//  - Login streak: jen Human (skutečný hráč)
+//  - Zakázat: Alt + RandomBot + AddclassBot
+// =============================
+#if __has_include("PlayerbotAI.h") && __has_include("RandomPlayerbotMgr.h") && __has_include("Playerbots.h")
+  #include "PlayerbotAI.h"
+  #include "RandomPlayerbotMgr.h"
+  #include "Playerbots.h" // GET_PLAYERBOT_AI + sPlayerbotsMgr
+  #define RO_HAS_PLAYERBOTS 1
+#else
+  #define RO_HAS_PLAYERBOTS 0
+#endif
+
+#if RO_HAS_PLAYERBOTS
+static inline PlayerbotAI* RO_GetPlayerbotAI(Player* p)
+{
+    if (!p)
+        return nullptr;
+
+    // Nejstabilnější na tvém branche: přes PlayerbotsMgr
+    // Playerbots.h definuje GET_PLAYERBOT_AI(object) -> sPlayerbotsMgr->GetPlayerbotAI(object)
+    return GET_PLAYERBOT_AI(p);
+}
+#endif
+
+static inline bool RO_IsRandomOrAddclass(Player* p)
+{
+#if RO_HAS_PLAYERBOTS
+	return p &&
+		(sRandomPlayerbotMgr.IsRandomBot(p) || sRandomPlayerbotMgr.IsAddclassBot(p));
+#else
+    (void)p;
+    return false;
+#endif
+}
+
+static inline bool RO_IsHuman(Player* p)
+{
+    if (!p)
+        return false;
+
+#if RO_HAS_PLAYERBOTS
+    // Random + Addclass vždy pryč
+    if (RO_IsRandomOrAddclass(p))
+        return false;
+
+    // Pokud existuje PlayerbotAI, rozhodneme přes něj:
+    // - altbot pryč
+    // - human = IsRealPlayer() (master == bot)
+    if (PlayerbotAI* ai = RO_GetPlayerbotAI(p))
+    {
+        if (ai->IsAlt())
+            return false;
+
+        return ai->IsRealPlayer();
+    }
+
+    // Když nemáme AI (typicky normální hráč bez bot AI), bereme jako human
+    return true;
+#else
+    return true;
+#endif
+}
 
 // ==== Locale přepínač (CZ/EN) – čte RealOnline.Locale (cs|en) ====
 enum class Lang { CS, EN };
@@ -48,67 +117,56 @@ static std::vector<uint32> ParseCSVu32b(std::string const& s)
     return out;
 }
 
-// ==== blocklist rozsahů účtů (A-B;C-D;...) ====
-struct Range { uint32 min=0, max=0; };
-
-static std::vector<Range> ParseRanges(std::string const& txt)
-{
-    std::vector<Range> out;
-    std::stringstream ss(txt);
-    std::string seg;
-    while (std::getline(ss, seg, ';'))
-    {
-        seg = Trim2(seg);
-        if (seg.empty()) continue;
-        auto dash = seg.find('-');
-        if (dash == std::string::npos) continue;
-        std::string a = Trim2(seg.substr(0, dash));
-        std::string b = Trim2(seg.substr(dash + 1));
-        if (a.empty() || b.empty()) continue;
-        uint32 mn = 0, mx = 0;
-        try { mn = static_cast<uint32>(std::stoul(a)); mx = static_cast<uint32>(std::stoul(b)); }
-        catch (...) { continue; }
-        if (mn > mx) std::swap(mn, mx);
-        out.push_back({mn, mx});
-    }
-    return out;
-}
-
-static bool InRanges(uint32 id, std::vector<Range> const& rs)
-{
-    for (auto const& r : rs)
-        if (id >= r.min && id <= r.max)
-            return true;
-    return false;
-}
-
+// =====================================================================
+// Delivery:
+//  - inventory  -> pokus do bagů; když nejde, uloží do token banky (customs.rewards stored)
+//  - entitlement/stored/bank -> rovnou do token banky (bez pokusu o inventory)
+// =====================================================================
 static bool DeliverEntitlementOrInventory(Player* plr, uint32 accountId, uint32 itemId, uint32 count, std::string const& deliveryMode)
 {
     std::string mode = deliveryMode;
     std::transform(mode.begin(), mode.end(), mode.begin(), ::tolower);
 
-    if (mode == "inventory")
+    auto upsertToBank = [&]()
     {
-        ItemPosCountVec dest;
-        if (plr->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, itemId, count) == EQUIP_ERR_OK)
+        std::string up =
+            "INSERT INTO customs.rewards (`account`,`item`,`entitled`,`claimed`,`stored`) VALUES ("
+            + std::to_string(accountId) + "," + std::to_string(itemId) + "," + std::to_string(count) + "," + std::to_string(count) + "," + std::to_string(count) + ") "
+            "ON DUPLICATE KEY UPDATE "
+            "  `entitled` = `entitled` + VALUES(`entitled`), "
+            "  `claimed`  = `claimed`  + VALUES(`claimed`), "
+            "  `stored`   = `stored`   + VALUES(`stored`), "
+            "  updated_at = NOW()";
+        CharacterDatabase.DirectExecute(up.c_str());
+        return true;
+    };
+
+    if (mode == "entitlement" || mode == "stored" || mode == "bank" || mode == "tokenbank")
+        return upsertToBank();
+
+    if (mode != "inventory")
+        mode = "inventory";
+
+    ItemPosCountVec dest;
+    if (plr && plr->GetSession() && plr->CanStoreNewItem(NULL_BAG, NULL_SLOT, dest, itemId, count) == EQUIP_ERR_OK)
+    {
+        if (Item* it = plr->StoreNewItem(dest, itemId, true))
         {
-            if (Item* it = plr->StoreNewItem(dest, itemId, true))
-            {
-                plr->SendNewItem(it, count, true, false);
-                return true;
-            }
+            plr->SendNewItem(it, count, true, false);
+            return true;
         }
+    }
+
+    upsertToBank();
+
+    if (plr && plr->GetSession())
+    {
         ChatHandler(plr->GetSession()).SendSysMessage(T(
-            "Inventář je plný, odměna byla připsána na účet. Vyzvedni pomocí \".reward claim\".",
-            "Inventory is full, reward was credited to your account. Use \".reward claim\" to collect."
+            "Inventář je plný, odměna byla uložena do token banky. Vyber pomocí \".token withdraw <pocet>\" (stav: \".token\").",
+            "Inventory is full, reward was stored in token bank. Use \".token withdraw <count>\" (status: \".token\")."
         ));
     }
 
-    std::string up =
-        "INSERT INTO customs.rewards (account,item,entitled,claimed) VALUES (" +
-        std::to_string(accountId) + "," + std::to_string(itemId) + "," + std::to_string(count) + ",0) "
-        "ON DUPLICATE KEY UPDATE entitled = entitled + VALUES(entitled), updated_at = NOW()";
-    CharacterDatabase.DirectExecute(up.c_str());
     return true;
 }
 
@@ -161,24 +219,72 @@ static void ReadSpecialReward(uint32 day, uint32& itemId, uint32& count)
     count  = sConfigMgr->GetOption<uint32>((base + "Count").c_str(), 0u);
 }
 
+class StreakAnnounceEvent : public BasicEvent
+{
+public:
+    StreakAnnounceEvent(ObjectGuid guid, std::string msg) : _guid(guid), _msg(std::move(msg)) { }
+
+    bool Execute(uint64 /*execTime*/, uint32 /*diff*/) override
+    {
+        if (Player* p = ObjectAccessor::FindPlayer(_guid))
+        {
+            if (p->GetSession())
+            {
+                ChatHandler(p->GetSession()).SendSysMessage(_msg.c_str());
+                p->GetSession()->SendAreaTriggerMessage(_msg.c_str());
+            }
+        }
+        return true;
+    }
+
+private:
+    ObjectGuid _guid;
+    std::string _msg;
+};
+
+static void SendStreakAnnounceDelayed(Player* player, std::string const& msg, uint32 delayMs = 1500)
+{
+    if (!player || !player->GetSession())
+        return;
+
+    player->m_Events.AddEvent(new StreakAnnounceEvent(player->GetGUID(), msg), player->m_Events.CalculateTime(delayMs));
+}
+
+// =====================================================================
+// Anti-dup guard: jeden účet může dostat streak reward max 1× za "todaySerial"
+// (řeší vlnu loginů altů / více postav na stejném účtu)
+// =====================================================================
+static std::unordered_map<uint32, uint32> s_rewardedTodayByAccount; // acc -> todaySerial
+static uint32 s_guardSerial = 0;
+
 // ==== handler ====
 static void HandleLoginStreak(Player* player)
 {
     StreakCfg cfg = ReadStreakCfg();
     if (!cfg.enable || !player || !player->GetSession())
         return;
+
+    // FILTR: jen skutečný hráč
+    if (!RO_IsHuman(player))
+        return;
+
     if (cfg.baseItem == 0 || cfg.baseCount == 0)
         return;
 
     uint32 acc = player->GetSession()->GetAccountId();
     uint32 today = TodaySerial(cfg.dayBoundaryHour);
 
-{
-    std::vector<Range> blocked = ParseRanges(sConfigMgr->GetOption<std::string>("RealOnline.IgnoreAccountIdRanges", ""));
-    if (!blocked.empty() && InRanges(acc, blocked))
-        return;
-}
+    // reset mapy při změně dne
+    if (s_guardSerial != today)
+    {
+        s_rewardedTodayByAccount.clear();
+        s_guardSerial = today;
+    }
 
+    // guard proti více spuštěním v jedné login vlně
+    auto itg = s_rewardedTodayByAccount.find(acc);
+    if (itg != s_rewardedTodayByAccount.end() && itg->second == today)
+        return;
 
     uint32 lastSerial = 0, lastRewardSerial = 0, streakDay = 0;
 
@@ -195,6 +301,7 @@ static void HandleLoginStreak(Player* player)
         }
         else
         {
+            // první záznam pro účet => Day 1 a odměna
             streakDay = 1;
 
             uint32 totalCount = cfg.baseCount;
@@ -205,14 +312,13 @@ static void HandleLoginStreak(Player* player)
             {
                 ReadSpecialReward(streakDay, spItem, spCnt);
                 if (spItem && spCnt)
-                {
                     separateBonus = true;
-                }
                 else
-                {
-                    totalCount += spCnt; // bonus stejného itemu
-                }
+                    totalCount += spCnt;
             }
+
+            // nastav guard ještě před rewardem
+            s_rewardedTodayByAccount[acc] = today;
 
             if (separateBonus)
             {
@@ -253,30 +359,28 @@ static void HandleLoginStreak(Player* player)
                     else
                         ss << "Získáváš " << cfg.baseCount << "× Mystery Token.";
                 }
-                ChatHandler(player->GetSession()).SendSysMessage(ss.str().c_str());
+                SendStreakAnnounceDelayed(player, ss.str());
             }
             return;
         }
     }
 
+    // už dnes vyplaceno => nic
+    if (lastRewardSerial == today)
+        return;
+
     int64 delta = static_cast<int64>(today) - static_cast<int64>(lastSerial);
 
-    if (delta <= 0)
-    {
-        if (lastRewardSerial == today)
-            return;
-    }
-    else if (delta == 1)
-    {
+    if (delta == 1)
         streakDay = (streakDay % cfg.cycleLen) + 1;
-    }
-    else
+    else if (delta > 1)
     {
         if (cfg.resetOnMiss)
             streakDay = 1;
         else
             streakDay = (streakDay % cfg.cycleLen) + 1;
     }
+    // delta <= 0: necháme streakDay beze změny, jen vyplatíme pokud nebyl reward dnes
 
     uint32 totalCount = cfg.baseCount;
     bool separateBonus = false;
@@ -290,6 +394,9 @@ static void HandleLoginStreak(Player* player)
         else
             totalCount += spCnt;
     }
+
+    // nastav guard ještě před rewardem
+    s_rewardedTodayByAccount[acc] = today;
 
     {
         std::string up =
@@ -333,7 +440,7 @@ static void HandleLoginStreak(Player* player)
             else
                 ss << "Získáváš " << cfg.baseCount << "× Mystery Token.";
         }
-        ChatHandler(player->GetSession()).SendSysMessage(ss.str().c_str());
+        SendStreakAnnounceDelayed(player, ss.str());
     }
 }
 
